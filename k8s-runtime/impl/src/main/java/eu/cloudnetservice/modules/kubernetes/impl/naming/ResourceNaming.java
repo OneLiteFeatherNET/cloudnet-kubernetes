@@ -1,0 +1,70 @@
+package eu.cloudnetservice.modules.kubernetes.impl.naming;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.Locale;
+import java.util.UUID;
+
+/**
+ * Derives Kubernetes resource names from CloudNet service identities.
+ *
+ * <p>All names produced here are valid DNS-1123 labels, because they end up as pod
+ * names and, through {@code spec.hostname}, as DNS records.
+ */
+public final class ResourceNaming {
+
+  private static final int MAX_DNS_1123 = 63;
+  private static final int SHORT_ID_LENGTH = 8;
+
+  private ResourceNaming() {
+  }
+
+  public static String podName(String serviceName, UUID serviceId) {
+    var shortId = serviceId.toString().substring(0, SHORT_ID_LENGTH);
+    return clamp("cn-" + sanitize(serviceName) + "-" + shortId);
+  }
+
+  public static String secretName(String podName) {
+    return clamp(podName + "-wrapper");
+  }
+
+  /**
+   * Deliberately derived from the service name only. Including the uniqueId would
+   * hand a static service a fresh, empty volume on every start - mirroring how
+   * {@code AbstractService#resolveServicePath} treats static versus dynamic services.
+   */
+  public static String pvcName(String serviceName) {
+    return clamp("cn-" + sanitize(serviceName) + "-data");
+  }
+
+  public static String podFqdn(String podName, String subdomain, String namespace, String clusterDomain) {
+    return podName + "." + subdomain + "." + namespace + ".svc." + clusterDomain;
+  }
+
+  private static String sanitize(String raw) {
+    var lower = raw.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9-]", "-");
+    return lower.replaceAll("-{2,}", "-").replaceAll("^-+", "").replaceAll("-+$", "");
+  }
+
+  private static String clamp(String candidate) {
+    if (candidate.length() <= MAX_DNS_1123) {
+      return candidate;
+    }
+
+    // Truncating alone could collide; a stable hash keeps distinct inputs distinct.
+    var suffix = "-" + shortHash(candidate);
+    var head = candidate.substring(0, MAX_DNS_1123 - suffix.length()).replaceAll("-+$", "");
+    return head + suffix;
+  }
+
+  private static String shortHash(String input) {
+    try {
+      var digest = MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(digest).substring(0, SHORT_ID_LENGTH);
+    } catch (NoSuchAlgorithmException exception) {
+      throw new IllegalStateException("SHA-256 unavailable", exception);
+    }
+  }
+}
