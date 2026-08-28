@@ -1,0 +1,11 @@
+{
+  "group": "dev.onelitefeather.cloudnet",
+  "name": "CloudNet-Kubernetes",
+  "version": "${version}",
+  "main": "eu.cloudnetservice.modules.kubernetes.impl.KubernetesServicesModule",
+  "author": "OneLiteFeather",
+  "description": "Runs CloudNet services as Kubernetes pods",
+  "website": "https://github.com/OneLiteFeatherNET/cloudnet-kubernetes",
+  "runtimeModule": true,
+  "storesSensitiveData": true
+}

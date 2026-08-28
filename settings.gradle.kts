@@ -33,6 +33,7 @@ dependencyResolutionManagement {
             library("fabric8-mockserver", "io.fabric8", "kubernetes-server-mock").withoutVersion()
 
             library("awssdk-s3", "software.amazon.awssdk", "s3").versionRef("awssdk")
+            library("awssdk-urlconnection", "software.amazon.awssdk", "url-connection-client").versionRef("awssdk")
             library("commons-compress", "org.apache.commons", "commons-compress").versionRef("commonsCompress")
 
             library("junit-bom", "org.junit", "junit-bom").versionRef("junit")
