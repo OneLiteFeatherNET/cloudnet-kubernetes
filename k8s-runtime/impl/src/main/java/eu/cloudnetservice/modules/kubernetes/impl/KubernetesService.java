@@ -8,6 +8,7 @@ import eu.cloudnetservice.modules.kubernetes.config.KubernetesConfiguration;
 import eu.cloudnetservice.modules.kubernetes.impl.console.PodConsoleInput;
 import eu.cloudnetservice.modules.kubernetes.impl.console.PodLogStream;
 import eu.cloudnetservice.modules.kubernetes.impl.naming.ResourceNaming;
+import eu.cloudnetservice.modules.kubernetes.impl.pod.ArgumentRewriter;
 import eu.cloudnetservice.modules.kubernetes.impl.pod.PodSpecBuilder;
 import eu.cloudnetservice.modules.kubernetes.impl.staging.ServiceDirectoryStager;
 import eu.cloudnetservice.modules.kubernetes.impl.state.PodStateCache;
@@ -159,9 +160,11 @@ public final class KubernetesService extends JVMService {
       //    wrapper reads its config path from an overridable system property.
       this.createWrapperSecret(name);
 
-      // 3) Inherited arguments, with the binary and the config path adjusted.
-      var command = new ArrayList<>(arguments);
-      command.set(0, "java");
+      // 3) The inherited command line points at absolute node paths for the
+      //    launcher libraries, the wrapper jar and the service directory. None of
+      //    those exist in the pod, so they are mapped onto the image layout.
+      var command = new ArrayList<>(ArgumentRewriter.rewrite(
+        arguments, LIB_PATH, wrapperPath, this.serviceDirectory));
       command.add(1, "-Dcloudnet.wrapper.config.path=" + WRAPPER_MOUNT);
 
       var pod = this.podSpecBuilder.build(new PodSpecBuilder.PodRequest(
