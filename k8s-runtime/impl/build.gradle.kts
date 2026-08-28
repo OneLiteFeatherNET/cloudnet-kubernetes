@@ -14,7 +14,9 @@ dependencies {
     implementation(libs.fabric8.client) {
         exclude(group = "io.fabric8", module = "kubernetes-httpclient-vertx")
     }
-    runtimeOnly(libs.fabric8.httpclient.jdk)
+    // Compile scope, not runtimeOnly: we reference JdkHttpClientFactory directly to
+    // bypass the ServiceLoader (see KubernetesClientFactory).
+    implementation(libs.fabric8.httpclient.jdk)
     implementation(libs.awssdk.s3)
     implementation(libs.commons.compress)
 
