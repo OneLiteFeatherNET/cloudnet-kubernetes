@@ -104,16 +104,27 @@ public final class PodSpecBuilder {
           .withName("fetch-service-directory")
           .withImage(this.config.stagingImage())
           .withImagePullPolicy("IfNotPresent")
+          // Every value crosses into the shell as an environment variable, never as
+          // interpolated text. Bucket name and object key would otherwise be parsed
+          // as shell syntax, and the only thing standing between a crafted config
+          // and command execution would be the sanitising in ResourceNaming.
           .withCommand("/bin/sh", "-c",
-            "set -e; "
+            "set -eu; "
               + "mc alias set staging \"$S3_ENDPOINT\" \"$S3_ACCESS_KEY\" \"$S3_SECRET_KEY\"; "
-              + "mc cp \"staging/" + this.config.staging().bucket() + "/" + request.stagingKey()
-              + "\" /tmp/service.tar; "
+              + "mc cp \"staging/$S3_BUCKET/$S3_OBJECT_KEY\" /tmp/service.tar; "
               + "tar -xf /tmp/service.tar -C /cloudnet/service; "
               + "rm -f /tmp/service.tar")
           .addNewEnv()
             .withName("S3_ENDPOINT")
             .withValue(this.config.staging().endpoint())
+          .endEnv()
+          .addNewEnv()
+            .withName("S3_BUCKET")
+            .withValue(this.config.staging().bucket())
+          .endEnv()
+          .addNewEnv()
+            .withName("S3_OBJECT_KEY")
+            .withValue(request.stagingKey())
           .endEnv()
           .addNewEnv()
             .withName("S3_ACCESS_KEY")

