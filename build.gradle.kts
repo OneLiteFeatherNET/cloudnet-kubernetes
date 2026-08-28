@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.shadow) apply false
-    alias(libs.plugins.cyclonedx) apply false
+    // Applied at the root so `cyclonedxBom` produces one aggregate SBOM for the
+    // DependencyTrack upload in the release workflow.
+    alias(libs.plugins.cyclonedx)
 }
 
 subprojects {

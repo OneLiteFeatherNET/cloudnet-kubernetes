@@ -1,0 +1,26 @@
+# One headless service for every gameserver pod, not one service per pod.
+#
+# Pods setting spec.hostname and spec.subdomain get an A record of the form
+# <hostname>.<subdomain>.<namespace>.svc.<clusterDomain> as long as a headless
+# service named after the subdomain exists. That makes a service address derivable
+# before the pod is created - which is what CloudNet's prepareService() needs, since
+# it fixes the address while no pod exists yet.
+#
+# clusterIP: None means no kube-proxy rules are programmed at all. A service per pod
+# would hit a well documented performance cliff in the thousands.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudnet-services
+  namespace: cloudnet
+spec:
+  clusterIP: None
+  # Required: without it the DNS record only appears once the pod is ready, and the
+  # wrapper handshake races CoreDNS.
+  publishNotReadyAddresses: true
+  selector:
+    cloudnet.eu/component: service
+  ports:
+    - name: game
+      port: 25565
+      protocol: TCP

@@ -1,0 +1,13 @@
+name: Lint PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint:
+    uses: OneLiteFeatherNET/workflows/.github/workflows/pr-lint.yml@v2.8.1
+    secrets: inherit
