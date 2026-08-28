@@ -174,6 +174,7 @@ public final class KubernetesService extends JVMService {
         this.ownerConfigMapName,
         this.ownerConfigMapUid,
         this.taskImage,
+        this.stagingKey,
         command));
 
       this.client.pods().inNamespace(this.kubernetesConfig.namespace()).resource(pod).create();

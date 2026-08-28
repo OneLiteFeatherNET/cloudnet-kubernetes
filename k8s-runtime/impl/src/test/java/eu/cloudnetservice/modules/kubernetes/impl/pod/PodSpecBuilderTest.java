@@ -24,7 +24,8 @@ class PodSpecBuilderTest {
     this.request = new PodSpecBuilder.PodRequest(
       "Lobby-1", ID, "lobby", 4096, 25565, "node-1",
       "cloudnet-node-node-1-owner", "6f1c9f0e-1111-2222-3333-444455556666",
-      null, List.of("java", "-Xmx4096M", "-cp", "/cloudnet/libs/*", "Main"));
+      null, "services/cn-lobby-1-a3f9c2e1.tar",
+      List.of("java", "-Xmx4096M", "-cp", "/cloudnet/libs/*", "Main"));
   }
 
   @Test
@@ -108,10 +109,37 @@ class PodSpecBuilderTest {
   void perTaskImageOverridesTheModuleDefault() {
     var overridden = new PodSpecBuilder.PodRequest(
       "Lobby-1", ID, "lobby", 4096, 25565, "node-1",
-      "owner", "uid", "ghcr.io/example/custom:1.0", List.of("java"));
+      "owner", "uid", "ghcr.io/example/custom:1.0", "services/x.tar", List.of("java"));
 
     assertEquals("ghcr.io/example/custom:1.0",
       this.builder.build(overridden).getSpec().getContainers().getFirst().getImage());
+  }
+
+  @Test
+  void initContainerFetchesTheStagedDirectoryBeforeTheServerStarts() {
+    // The archive has to land before the main container starts, so the transfer never
+    // eats into the wrapper's 30 second authentication window.
+    var init = this.builder.build(this.request).getSpec().getInitContainers().getFirst();
+
+    assertEquals("fetch-service-directory", init.getName());
+    assertTrue(String.join(" ", init.getCommand()).contains("services/cn-lobby-1-a3f9c2e1.tar"),
+      init.getCommand().toString());
+    assertTrue(String.join(" ", init.getCommand()).contains("tar -xf"));
+    assertTrue(init.getVolumeMounts().stream()
+      .anyMatch(m -> m.getName().equals("service-dir")
+        && m.getMountPath().equals("/cloudnet/service")));
+  }
+
+  @Test
+  void initContainerReadsCredentialsFromASecretNotFromTheSpec() {
+    var envs = this.builder.build(this.request).getSpec().getInitContainers().getFirst().getEnv();
+
+    var accessKey = envs.stream()
+      .filter(e -> e.getName().equals("S3_ACCESS_KEY"))
+      .findFirst().orElseThrow();
+    assertNull(accessKey.getValue(), "credentials must never be inlined into the pod spec");
+    assertEquals("cloudnet-staging-credentials",
+      accessKey.getValueFrom().getSecretKeyRef().getName());
   }
 
   @Test

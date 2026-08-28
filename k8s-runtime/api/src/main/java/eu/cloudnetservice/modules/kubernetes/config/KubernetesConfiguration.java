@@ -9,6 +9,7 @@ public record KubernetesConfiguration(
   String clusterDomain,
   String subdomain,
   String serviceImage,
+  String stagingImage,
   String nodeServiceDns,
   int nodeListenerPort,
   int terminationGracePeriodSeconds,
@@ -42,6 +43,8 @@ public record KubernetesConfiguration(
     private String clusterDomain = "cluster.local";
     private String subdomain = "cloudnet-services";
     private String serviceImage = "ghcr.io/onelitefeathernet/cloudnet-service:4.0.0-RC17";
+    // Only needs an S3 client and tar; minio/mc carries both.
+    private String stagingImage = "minio/mc:latest";
     private String nodeServiceDns = "cloudnet-node.cloudnet.svc.cluster.local";
     private int nodeListenerPort = 1410;
     // Must exceed CloudNet's own processTerminationTimeoutSeconds, otherwise
@@ -78,6 +81,11 @@ public record KubernetesConfiguration(
       return this;
     }
 
+    public Builder stagingImage(String stagingImage) {
+      this.stagingImage = stagingImage;
+      return this;
+    }
+
     public Builder nodeServiceDns(String nodeServiceDns) {
       this.nodeServiceDns = nodeServiceDns;
       return this;
@@ -106,7 +114,7 @@ public record KubernetesConfiguration(
     public KubernetesConfiguration build() {
       return new KubernetesConfiguration(
         this.factoryName, this.namespace, this.clusterDomain, this.subdomain,
-        this.serviceImage, this.nodeServiceDns, this.nodeListenerPort,
+        this.serviceImage, this.stagingImage, this.nodeServiceDns, this.nodeListenerPort,
         this.terminationGracePeriodSeconds, this.activeDeadlineSeconds,
         this.memoryOverheadFactor, this.memoryOverheadFloorMib, this.defaultCpuRequest,
         this.staging);

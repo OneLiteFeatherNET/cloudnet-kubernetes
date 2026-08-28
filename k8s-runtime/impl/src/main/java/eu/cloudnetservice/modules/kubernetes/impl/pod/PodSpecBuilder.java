@@ -34,6 +34,7 @@ public final class PodSpecBuilder {
     String ownerConfigMapName,
     String ownerConfigMapUid,
     String image,
+    String stagingKey,
     List<String> command
   ) {
   }
@@ -96,6 +97,45 @@ public final class PodSpecBuilder {
           .withName("service-dir")
           .withNewEmptyDir().endEmptyDir()
         .endVolume()
+        // Unpacks the archive the node uploaded after prepareService(). This runs
+        // before the main container, and therefore before the wrapper's 30 second
+        // authentication window starts - the transfer never eats into that budget.
+        .addNewInitContainer()
+          .withName("fetch-service-directory")
+          .withImage(this.config.stagingImage())
+          .withImagePullPolicy("IfNotPresent")
+          .withCommand("/bin/sh", "-c",
+            "set -e; "
+              + "mc alias set staging \"$S3_ENDPOINT\" \"$S3_ACCESS_KEY\" \"$S3_SECRET_KEY\"; "
+              + "mc cp \"staging/" + this.config.staging().bucket() + "/" + request.stagingKey()
+              + "\" /tmp/service.tar; "
+              + "tar -xf /tmp/service.tar -C /cloudnet/service; "
+              + "rm -f /tmp/service.tar")
+          .addNewEnv()
+            .withName("S3_ENDPOINT")
+            .withValue(this.config.staging().endpoint())
+          .endEnv()
+          .addNewEnv()
+            .withName("S3_ACCESS_KEY")
+            .withNewValueFrom()
+              .withNewSecretKeyRef("accessKey", this.config.staging().credentialsSecretName(), false)
+            .endValueFrom()
+          .endEnv()
+          .addNewEnv()
+            .withName("S3_SECRET_KEY")
+            .withNewValueFrom()
+              .withNewSecretKeyRef("secretKey", this.config.staging().credentialsSecretName(), false)
+            .endValueFrom()
+          .endEnv()
+          .addNewVolumeMount()
+            .withName("service-dir")
+            .withMountPath("/cloudnet/service")
+          .endVolumeMount()
+          .withNewSecurityContext()
+            .withAllowPrivilegeEscalation(false)
+            .withNewCapabilities().withDrop("ALL").endCapabilities()
+          .endSecurityContext()
+        .endInitContainer()
         .addNewContainer()
           .withName("service")
           .withImage(image)
