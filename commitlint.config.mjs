@@ -12,6 +12,8 @@ export default {
   ignores: [(message) => /^Merge /.test(message)],
   rules: {
     'header-max-length': [2, 'always', 100],
+    // Bodies are prose and are dropped by the squash merge; only the header reaches main.
+    'body-max-line-length': [0],
     'scope-case': [2, 'always', 'lower-case'],
     'type-enum': [
       2,
