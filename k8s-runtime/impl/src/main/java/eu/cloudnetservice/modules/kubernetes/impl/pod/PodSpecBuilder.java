@@ -140,6 +140,10 @@ public final class PodSpecBuilder {
           .withName("service-dir")
           .withNewEmptyDir().endEmptyDir()
         .endVolume()
+        .addNewVolume()
+          .withName("init-tmp")
+          .withNewEmptyDir().endEmptyDir()
+        .endVolume()
         // Unpacks the archive the node uploaded after prepareService(). This runs
         // before the main container, and therefore before the wrapper's 30 second
         // authentication window starts - the transfer never eats into that budget.
@@ -157,6 +161,11 @@ public final class PodSpecBuilder {
               + "mc cp \"staging/$S3_BUCKET/$S3_OBJECT_KEY\" /tmp/service.tar; "
               + "tar -xf /tmp/service.tar -C /cloudnet/service; "
               + "rm -f /tmp/service.tar")
+          // The pod has no writable HOME for uid 1000, so mc keeps its config under /tmp.
+          .addNewEnv()
+            .withName("MC_CONFIG_DIR")
+            .withValue("/tmp/.mc")
+          .endEnv()
           .addNewEnv()
             .withName("S3_ENDPOINT")
             .withValue(this.config.staging().endpoint())
@@ -184,6 +193,11 @@ public final class PodSpecBuilder {
           .addNewVolumeMount()
             .withName("service-dir")
             .withMountPath("/cloudnet/service")
+          .endVolumeMount()
+          // mc and the archive step write to /tmp; an emptyDir keeps that working on a read-only root fs.
+          .addNewVolumeMount()
+            .withName("init-tmp")
+            .withMountPath("/tmp")
           .endVolumeMount()
           .withNewSecurityContext()
             .withAllowPrivilegeEscalation(false)

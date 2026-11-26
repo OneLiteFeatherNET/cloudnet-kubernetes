@@ -1,6 +1,7 @@
 package eu.cloudnetservice.modules.kubernetes.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,15 @@ class KubernetesConfigurationTest {
     assertEquals(5529, config.memoryLimitMib(4096));
     // 512 * 0.35 = 179, so the floor applies
     assertEquals(1024, config.memoryLimitMib(512));
+  }
+
+  @Test
+  void stagingImageDefaultIsPinnedInsteadOfLatest() {
+    // :latest changes under the module without a release; the tag must be explicit.
+    var image = KubernetesConfiguration.builder().build().stagingImage();
+
+    assertTrue(image.startsWith("minio/mc:"), image);
+    assertFalse(image.endsWith(":latest"), "the staging image must not float: " + image);
   }
 
   @Test

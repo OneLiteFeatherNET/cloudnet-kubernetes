@@ -2,6 +2,7 @@ package eu.cloudnetservice.modules.kubernetes.impl.pod;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -262,6 +263,30 @@ class PodSpecBuilderTest {
     var label = this.builder.build(withTask).getMetadata().getLabels().get("cloudnet.eu/task");
 
     assertEquals("Lobby--1", label);
+  }
+
+  @Test
+  void mcConfigDirIsSetToAWritableLocationForTheUnprivilegedUser() {
+    // The pod runs as uid 1000 without a writable HOME, so mc alias set cannot write ~/.mc.
+    var env = this.builder.build(this.request).getSpec().getInitContainers().getFirst().getEnv();
+
+    var mcConfigDir = env.stream()
+      .filter(e -> e.getName().equals("MC_CONFIG_DIR"))
+      .findFirst().orElseThrow(() -> new AssertionError("MC_CONFIG_DIR missing from the init container"));
+    assertEquals("/tmp/.mc", mcConfigDir.getValue());
+  }
+
+  @Test
+  void initContainerTmpIsBackedByAnEmptyDirSoItIsWritableEvenOnAReadOnlyRootFs() {
+    var spec = this.builder.build(this.request).getSpec();
+
+    var tmpMount = spec.getInitContainers().getFirst().getVolumeMounts().stream()
+      .filter(m -> m.getMountPath().equals("/tmp"))
+      .findFirst().orElseThrow(() -> new AssertionError("no volume mounted at /tmp in the init container"));
+    var volume = spec.getVolumes().stream()
+      .filter(v -> v.getName().equals(tmpMount.getName()))
+      .findFirst().orElseThrow();
+    assertNotNull(volume.getEmptyDir(), "/tmp must be an emptyDir, not part of the image layer");
   }
 
   private PodSpecBuilder.PodRequest overrides(
