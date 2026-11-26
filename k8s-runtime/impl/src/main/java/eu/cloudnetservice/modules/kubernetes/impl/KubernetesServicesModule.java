@@ -144,31 +144,14 @@ public final class KubernetesServicesModule extends DriverModule {
 
   /**
    * Startup reconciliation: pods carrying our label that no local service claims are
-   * removed. Adoption is impossible - the connection key lived only in the previous
-   * process and the network channel is gone.
+   * removed, along with their secret and staging archive.
    */
   private void reconcileOrphanedPods(CloudServiceManager serviceManager, String nodeUniqueId) {
-    var namespace = this.configuration.namespace();
-    var pods = this.client.pods()
-      .inNamespace(namespace)
-      .withLabel(PodStateCache.LABEL_MANAGED_BY, nodeUniqueId)
-      .list()
-      .getItems();
-
-    for (var pod : pods) {
-      var labels = pod.getMetadata().getLabels();
-      var serviceId = labels == null ? null : labels.get(PodStateCache.LABEL_SERVICE_ID);
-      if (serviceId == null) {
-        continue;
-      }
-
-      var known = serviceManager.localCloudServices().stream()
-        .anyMatch(service -> service.serviceId().uniqueId().toString().equals(serviceId));
-      if (!known) {
-        LOGGER.warn("removing orphaned pod {} - no local service claims it", pod.getMetadata().getName());
-        this.client.pods().inNamespace(namespace).withName(pod.getMetadata().getName()).delete();
-      }
-    }
+    var resources = new PodResources(this.client, this.configuration.namespace(), this.stager::delete);
+    new OrphanReaper(this.client, this.configuration.namespace(), resources).reap(
+      nodeUniqueId,
+      serviceId -> serviceManager.localCloudServices().stream()
+        .anyMatch(service -> service.serviceId().uniqueId().toString().equals(serviceId)));
   }
 
   @ModuleTask(lifecycle = ModuleLifeCycle.STOPPED)
