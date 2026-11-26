@@ -18,7 +18,8 @@ LABEL org.opencontainers.image.title="cloudnet-service" \
       eu.cloudnet.version="${CLOUDNET_VERSION}"
 
 # tar for the init container handoff, su-exec is not needed - we never change user.
-RUN apk add --no-cache tar
+# ca-certificates for the system trust store used below.
+RUN apk add --no-cache tar ca-certificates
 
 # Paths mirror ArgumentRewriter.CONTAINER_* exactly.
 RUN mkdir -p /cloudnet/libs /cloudnet/service /cloudnet/wrapper \
@@ -31,6 +32,21 @@ RUN mkdir -p /cloudnet/libs /cloudnet/service /cloudnet/wrapper \
 #   docker/wrapper.jar <- <cloudnet>/temp/caches/wrapper.jar
 COPY --chown=cloudnet:cloudnet libs/ /cloudnet/libs/
 COPY --chown=cloudnet:cloudnet wrapper.jar /cloudnet/wrapper.jar
+
+# Optional extra CA certificates (e.g. the OneLiteFeather root CA), populated at build
+# time by build.sh from CA_DIR. docker/ca may contain only .gitkeep. Each *.crt is
+# added to the system trust store and to the JVM cacerts (changeit, the JDK default).
+COPY ca/ /tmp/extra-ca/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for f in /tmp/extra-ca/*.crt; do \
+      [ -e "$f" ] || continue; \
+      cp "$f" /usr/local/share/ca-certificates/; \
+      keytool -importcert -noprompt -cacerts -storepass changeit \
+        -alias "$(basename "$f")" -file "$f"; \
+    done; \
+    update-ca-certificates; \
+    rm -rf /tmp/extra-ca
 
 USER 1000:1000
 WORKDIR /cloudnet/service

@@ -1,2 +1,3 @@
 libs/
 wrapper.jar
+ca/*.crt
