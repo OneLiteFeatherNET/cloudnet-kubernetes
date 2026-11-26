@@ -7,7 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
+// The node paths being rewritten are POSIX paths: CloudNet nodes that drive this runtime run on
+// Linux, and on Windows Path#toAbsolutePath() would prefix them with a drive letter.
+@DisabledOnOs(value = OS.WINDOWS, disabledReason = "node paths are POSIX paths")
 class ArgumentRewriterTest {
 
   private static final Path LIBS = Path.of("/opt/cloudnet/launcher/libs");
