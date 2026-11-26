@@ -22,7 +22,9 @@ import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -56,6 +58,7 @@ public final class KubernetesService extends JVMService {
   private final PodStateCache stateCache;
   private final ServiceDirectoryStager stager;
   private final ExecutorService executor;
+  private final Clock clock;
   private final String nodeUniqueId;
   private final String ownerConfigMapName;
   private final String ownerConfigMapUid;
@@ -63,6 +66,7 @@ public final class KubernetesService extends JVMService {
   private final KubernetesServiceLogCache kubernetesLogCache;
 
   private volatile String podName;
+  private volatile Instant startedAt;
   private volatile String stagingKey;
   private volatile PodConsoleInput console;
   private volatile PodLogStream logStream;
@@ -82,6 +86,7 @@ public final class KubernetesService extends JVMService {
     PodStateCache stateCache,
     ServiceDirectoryStager stager,
     ExecutorService executor,
+    Clock clock,
     String nodeUniqueId,
     String ownerConfigMapName,
     String ownerConfigMapUid,
@@ -106,6 +111,7 @@ public final class KubernetesService extends JVMService {
     this.stateCache = stateCache;
     this.stager = stager;
     this.executor = executor;
+    this.clock = clock;
     this.nodeUniqueId = nodeUniqueId;
     this.ownerConfigMapName = ownerConfigMapName;
     this.ownerConfigMapUid = ownerConfigMapUid;
@@ -123,13 +129,11 @@ public final class KubernetesService extends JVMService {
    */
   @Override
   public boolean alive() {
-    var serviceId = this.serviceId().uniqueId().toString();
-    if (this.stateCache.running(serviceId)) {
-      return true;
-    }
-    // Still scheduling or pulling: not Running yet, but very much not dead.
-    return this.stateCache.known(serviceId)
-      && this.stateCache.withinStartupGrace(serviceId, STARTUP_GRACE);
+    // Still scheduling or pulling is not dead; a Failed or Succeeded pod is, even early on.
+    return this.stateCache.alive(
+      this.serviceId().uniqueId().toString(),
+      this.startedAt,
+      STARTUP_GRACE);
   }
 
   @Override
@@ -149,6 +153,7 @@ public final class KubernetesService extends JVMService {
   protected void doStartProcess(List<String> arguments, Path wrapperPath, Path applicationFilePath) {
     var name = ResourceNaming.podName(this.serviceId().name(), this.serviceId().uniqueId());
     this.podName = name;
+    this.startedAt = this.clock.instant();
 
     try {
       // 1) Hand the directory prepareService() just built over to the pod. Bind mounts

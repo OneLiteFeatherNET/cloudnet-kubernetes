@@ -95,6 +95,37 @@ public final class PodStateCache implements AutoCloseable {
     return seen != null && this.clock.instant().isBefore(seen.plus(grace));
   }
 
+  /** True once the pod has reached a terminal phase. Such a pod will never run again. */
+  public boolean terminal(String serviceId) {
+    var pod = this.byServiceId.get(serviceId);
+    if (pod == null || pod.getStatus() == null) {
+      return false;
+    }
+    var phase = pod.getStatus().getPhase();
+    return "Failed".equals(phase) || "Succeeded".equals(phase);
+  }
+
+  /**
+   * Liveness as the watchdog sees it.
+   *
+   * <p>A running pod is alive. A pod in a terminal phase is dead, whatever the grace
+   * window says. Otherwise the service is alive while it is still starting: a known pod
+   * within the grace window since it was first seen, or - until the informer has
+   * delivered the pod at all - within the grace window since {@code startedAt}.
+   */
+  public boolean alive(String serviceId, Instant startedAt, Duration grace) {
+    if (running(serviceId)) {
+      return true;
+    }
+    if (terminal(serviceId)) {
+      return false;
+    }
+    if (known(serviceId)) {
+      return withinStartupGrace(serviceId, grace);
+    }
+    return startedAt != null && this.clock.instant().isBefore(startedAt.plus(grace));
+  }
+
   public Set<String> knownServiceIds() {
     return Set.copyOf(this.byServiceId.keySet());
   }

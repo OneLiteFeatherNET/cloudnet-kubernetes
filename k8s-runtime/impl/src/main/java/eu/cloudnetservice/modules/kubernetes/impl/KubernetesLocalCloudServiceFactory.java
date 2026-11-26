@@ -21,6 +21,7 @@ import eu.cloudnetservice.node.impl.version.ServiceVersionProvider;
 import eu.cloudnetservice.node.service.CloudService;
 import eu.cloudnetservice.node.service.CloudServiceManager;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import java.time.Clock;
 import java.util.concurrent.ExecutorService;
 
 public final class KubernetesLocalCloudServiceFactory extends BaseLocalCloudServiceFactory {
@@ -38,6 +39,7 @@ public final class KubernetesLocalCloudServiceFactory extends BaseLocalCloudServ
   private final PodStateCache stateCache;
   private final ServiceDirectoryStager stager;
   private final ExecutorService executor;
+  private final Clock clock;
   private final String nodeUniqueId;
   private final String ownerConfigMapName;
   private final String ownerConfigMapUid;
@@ -55,6 +57,7 @@ public final class KubernetesLocalCloudServiceFactory extends BaseLocalCloudServ
     PodStateCache stateCache,
     ServiceDirectoryStager stager,
     ExecutorService executor,
+    Clock clock,
     String nodeUniqueId,
     String ownerConfigMapName,
     String ownerConfigMapUid
@@ -70,6 +73,7 @@ public final class KubernetesLocalCloudServiceFactory extends BaseLocalCloudServ
     this.stateCache = stateCache;
     this.stager = stager;
     this.executor = executor;
+    this.clock = clock;
     this.nodeUniqueId = nodeUniqueId;
     this.ownerConfigMapName = ownerConfigMapName;
     this.ownerConfigMapUid = ownerConfigMapUid;
@@ -134,6 +138,7 @@ public final class KubernetesLocalCloudServiceFactory extends BaseLocalCloudServ
       this.stateCache,
       this.stager,
       this.executor,
+      this.clock,
       this.nodeUniqueId,
       this.ownerConfigMapName,
       this.ownerConfigMapUid,

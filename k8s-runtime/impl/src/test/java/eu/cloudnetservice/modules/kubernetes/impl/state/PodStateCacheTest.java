@@ -134,6 +134,80 @@ class PodStateCacheTest {
   }
 
   @Test
+  void failedPodIsNotAliveEvenInsideTheGraceWindow() {
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    cache.index(pod("cn-lobby-7-a1c2d3e4", SERVICE_ID, "Failed"));
+
+    assertFalse(cache.alive(SERVICE_ID, clock.instant(), Duration.ofMinutes(3)),
+      "a Failed pod is dead, the grace window must not keep it alive");
+  }
+
+  @Test
+  void succeededPodIsNotAliveEvenInsideTheGraceWindow() {
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    cache.index(pod("cn-lobby-8-b1c2d3e4", SERVICE_ID, "Succeeded"));
+
+    assertFalse(cache.alive(SERVICE_ID, clock.instant(), Duration.ofMinutes(3)),
+      "a Succeeded pod has exited, the grace window must not keep it alive");
+  }
+
+  @Test
+  void runningPodIsAlive() {
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    cache.index(pod("cn-lobby-9-c1c2d3e4", SERVICE_ID, "Running"));
+
+    assertTrue(cache.alive(SERVICE_ID, clock.instant(), Duration.ofMinutes(3)));
+  }
+
+  @Test
+  void pendingPodIsAliveWithinTheGraceWindow() {
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    cache.index(pod("cn-lobby-10-d1c2d3e4", SERVICE_ID, "Pending"));
+
+    clock.advance(Duration.ofMinutes(2));
+    assertTrue(cache.alive(SERVICE_ID, clock.instant().minus(Duration.ofMinutes(2)), Duration.ofMinutes(3)),
+      "a Pending pod inside its grace window is still starting, not dead");
+  }
+
+  @Test
+  void pendingPodIsNotAliveOnceTheGraceWindowHasExpired() {
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    cache.index(pod("cn-lobby-11-e1c2d3e4", SERVICE_ID, "Pending"));
+
+    clock.advance(Duration.ofMinutes(4));
+    assertFalse(cache.alive(SERVICE_ID, clock.instant().minus(Duration.ofMinutes(4)), Duration.ofMinutes(3)),
+      "a Pending pod that never started within the grace window must count as dead");
+  }
+
+  @Test
+  void serviceNotYetSeenByTheInformerIsAliveWithinTheGraceWindowFromItsStart() {
+    // Right after the create call the informer may not have delivered the pod yet.
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    var startedAt = clock.instant();
+
+    clock.advance(Duration.ofSeconds(30));
+    assertTrue(cache.alive(SERVICE_ID, startedAt, Duration.ofMinutes(3)),
+      "a service whose pod the informer has not seen yet must not be stopped inside the grace window");
+  }
+
+  @Test
+  void serviceNotYetSeenByTheInformerIsNotAliveAfterTheGraceWindow() {
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    var startedAt = clock.instant();
+
+    clock.advance(Duration.ofMinutes(4));
+    assertFalse(cache.alive(SERVICE_ID, startedAt, Duration.ofMinutes(3)),
+      "a pod that never appeared must not keep its service alive forever");
+  }
+
+  @Test
   void deletionNotifiesTheVanishListener() {
     var cache = cache(new ManualClock());
     List<String> vanished = new ArrayList<>();

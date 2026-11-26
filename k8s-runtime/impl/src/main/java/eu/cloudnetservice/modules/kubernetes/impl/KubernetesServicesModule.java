@@ -70,7 +70,8 @@ public final class KubernetesServicesModule extends DriverModule {
 
     var owner = this.ensureOwnerConfigMap(nodeUniqueId);
 
-    this.stateCache = new PodStateCache(this.client, this.configuration, Clock.systemUTC());
+    var clock = Clock.systemUTC();
+    this.stateCache = new PodStateCache(this.client, this.configuration, clock);
     this.stateCache.start(nodeUniqueId);
     this.reconcileOrphanedPods(serviceManager, nodeUniqueId);
 
@@ -87,6 +88,7 @@ public final class KubernetesServicesModule extends DriverModule {
       this.stateCache,
       this.stager,
       this.executor,
+      clock,
       nodeUniqueId,
       owner.getMetadata().getName(),
       owner.getMetadata().getUid());
