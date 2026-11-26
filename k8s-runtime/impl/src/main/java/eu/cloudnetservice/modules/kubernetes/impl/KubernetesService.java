@@ -5,6 +5,7 @@ import eu.cloudnetservice.driver.language.I18n;
 import eu.cloudnetservice.driver.network.HostAndPort;
 import eu.cloudnetservice.driver.service.ServiceConfiguration;
 import eu.cloudnetservice.modules.kubernetes.config.KubernetesConfiguration;
+import eu.cloudnetservice.modules.kubernetes.config.TaskKubernetesConfig;
 import eu.cloudnetservice.modules.kubernetes.impl.console.PodConsoleInput;
 import eu.cloudnetservice.modules.kubernetes.impl.console.PodLogStream;
 import eu.cloudnetservice.modules.kubernetes.impl.naming.ResourceNaming;
@@ -59,7 +60,7 @@ public final class KubernetesService extends JVMService {
   private final String nodeUniqueId;
   private final String ownerConfigMapName;
   private final String ownerConfigMapUid;
-  private final String taskImage;
+  private final TaskKubernetesConfig taskConfig;
   private final KubernetesServiceLogCache kubernetesLogCache;
 
   private volatile String podName;
@@ -85,7 +86,7 @@ public final class KubernetesService extends JVMService {
     String nodeUniqueId,
     String ownerConfigMapName,
     String ownerConfigMapUid,
-    String taskImage
+    TaskKubernetesConfig taskConfig
   ) {
     var logCache = new KubernetesServiceLogCache(nodeConfig, configuration.serviceId());
     super(
@@ -109,7 +110,7 @@ public final class KubernetesService extends JVMService {
     this.nodeUniqueId = nodeUniqueId;
     this.ownerConfigMapName = ownerConfigMapName;
     this.ownerConfigMapUid = ownerConfigMapUid;
-    this.taskImage = taskImage;
+    this.taskConfig = taskConfig;
   }
 
   @Override
@@ -176,9 +177,14 @@ public final class KubernetesService extends JVMService {
         this.nodeUniqueId,
         this.ownerConfigMapName,
         this.ownerConfigMapUid,
-        this.taskImage,
+        this.taskConfig.image(),
         this.stagingKey,
-        command));
+        command,
+        this.taskConfig.nodeSelector(),
+        this.taskConfig.tolerationKey(),
+        this.taskConfig.cpuRequest(),
+        this.taskConfig.memoryMiB(),
+        this.taskConfig.priorityClassName()));
 
       this.client.pods().inNamespace(this.kubernetesConfig.namespace()).resource(pod).create();
 

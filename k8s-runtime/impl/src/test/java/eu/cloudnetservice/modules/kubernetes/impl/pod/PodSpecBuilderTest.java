@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import eu.cloudnetservice.modules.kubernetes.config.KubernetesConfiguration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -183,5 +184,85 @@ class PodSpecBuilderTest {
     // Always would add a registry round trip inside the wrapper's 30 second window.
     assertEquals("IfNotPresent",
       this.builder.build(this.request).getSpec().getContainers().getFirst().getImagePullPolicy());
+  }
+
+  @Test
+  void taskNodeSelectorIsAppliedToThePodSpec() {
+    var pod = this.builder.build(overrides(Map.of("pool", "gameservers"), null, null, null, null));
+
+    assertEquals(Map.of("pool", "gameservers"), pod.getSpec().getNodeSelector());
+  }
+
+  @Test
+  void podSpecHasNoNodeSelectorWhenTheTaskSetsNone() {
+    var pod = this.builder.build(overrides(null, null, null, null, null));
+
+    assertNull(pod.getSpec().getNodeSelector(), "an unset selector must not pin the pod to any node");
+  }
+
+  @Test
+  void tolerationKeyYieldsAnExistsNoScheduleToleration() {
+    var tolerations = this.builder.build(overrides(null, "gameservers", null, null, null))
+      .getSpec().getTolerations();
+
+    assertEquals(1, tolerations.size(), "exactly one toleration expected");
+    assertEquals("gameservers", tolerations.getFirst().getKey());
+    assertEquals("Exists", tolerations.getFirst().getOperator());
+    assertEquals("NoSchedule", tolerations.getFirst().getEffect());
+  }
+
+  @Test
+  void podSpecHasNoTolerationWhenTheTaskSetsNoKey() {
+    assertNull(this.builder.build(overrides(null, null, null, null, null)).getSpec().getTolerations(),
+      "no tolerationKey means no toleration at all");
+  }
+
+  @Test
+  void cpuRequestOverrideReplacesTheModuleDefault() {
+    var requests = this.builder.build(overrides(null, null, 4, null, null))
+      .getSpec().getContainers().getFirst().getResources().getRequests();
+
+    assertEquals("4", requests.get("cpu").toString());
+  }
+
+  @Test
+  void memoryOverrideSetsRequestAndLimitToTheSameValue() {
+    var resources = this.builder.build(overrides(null, null, null, 8192, null))
+      .getSpec().getContainers().getFirst().getResources();
+
+    assertEquals("8192Mi", resources.getRequests().get("memory").toString(), "request");
+    assertEquals("8192Mi", resources.getLimits().get("memory").toString(), "limit");
+  }
+
+  @Test
+  void memoryIsDerivedFromTheHeapWhenTheTaskSetsNoOverride() {
+    var resources = this.builder.build(overrides(null, null, null, null, null))
+      .getSpec().getContainers().getFirst().getResources();
+
+    assertEquals("5529Mi", resources.getRequests().get("memory").toString());
+  }
+
+  @Test
+  void priorityClassNameIsAppliedWhenSet() {
+    assertEquals("high-gameserver",
+      this.builder.build(overrides(null, null, null, null, "high-gameserver")).getSpec().getPriorityClassName());
+  }
+
+  @Test
+  void priorityClassNameIsOmittedWhenNotSet() {
+    assertNull(this.builder.build(overrides(null, null, null, null, null)).getSpec().getPriorityClassName());
+  }
+
+  private PodSpecBuilder.PodRequest overrides(
+    Map<String, String> nodeSelector,
+    String tolerationKey,
+    Integer cpuRequest,
+    Integer memoryMiB,
+    String priorityClassName
+  ) {
+    return new PodSpecBuilder.PodRequest(
+      "Lobby-1", ID, "lobby", 4096, 25565, "node-1",
+      "owner", "uid", null, "services/x.tar", List.of("java"),
+      nodeSelector, tolerationKey, cpuRequest, memoryMiB, priorityClassName);
   }
 }

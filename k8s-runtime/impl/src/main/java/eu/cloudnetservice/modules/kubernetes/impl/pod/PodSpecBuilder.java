@@ -5,6 +5,7 @@ import eu.cloudnetservice.modules.kubernetes.impl.naming.ResourceNaming;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.Quantity;
+import io.fabric8.kubernetes.api.model.TolerationBuilder;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -35,14 +36,53 @@ public final class PodSpecBuilder {
     String ownerConfigMapUid,
     String image,
     String stagingKey,
-    List<String> command
+    List<String> command,
+    // Per-task overrides. Null means "module default", see TaskKubernetesConfig.
+    Map<String, String> nodeSelector,
+    String tolerationKey,
+    Integer cpuRequest,
+    Integer memoryMiB,
+    String priorityClassName
   ) {
+
+    /** Without any per-task overrides. */
+    public PodRequest(
+      String serviceName,
+      UUID serviceId,
+      String taskName,
+      int maxHeapMemoryMib,
+      int port,
+      String nodeUniqueId,
+      String ownerConfigMapName,
+      String ownerConfigMapUid,
+      String image,
+      String stagingKey,
+      List<String> command
+    ) {
+      this(serviceName, serviceId, taskName, maxHeapMemoryMib, port, nodeUniqueId, ownerConfigMapName,
+        ownerConfigMapUid, image, stagingKey, command, null, null, null, null, null);
+    }
   }
 
   public Pod build(PodRequest request) {
     var podName = ResourceNaming.podName(request.serviceName(), request.serviceId());
-    var memory = new Quantity(this.config.memoryLimitMib(request.maxHeapMemoryMib()) + "Mi");
+    // A task-level memory override replaces the heap derived value for both request and limit.
+    var memoryMib = request.memoryMiB() != null
+      ? request.memoryMiB()
+      : this.config.memoryLimitMib(request.maxHeapMemoryMib());
+    var memory = new Quantity(memoryMib + "Mi");
+    var cpuRequest = request.cpuRequest() != null ? request.cpuRequest() : this.config.defaultCpuRequest();
     var image = request.image() != null ? request.image() : this.config.serviceImage();
+    var nodeSelector = request.nodeSelector() == null || request.nodeSelector().isEmpty()
+      ? null
+      : Map.copyOf(request.nodeSelector());
+    var tolerations = request.tolerationKey() == null || request.tolerationKey().isBlank()
+      ? null
+      : List.of(new TolerationBuilder()
+        .withKey(request.tolerationKey())
+        .withOperator("Exists")
+        .withEffect("NoSchedule")
+        .build());
 
     return new PodBuilder()
       .withNewMetadata()
@@ -79,6 +119,9 @@ public final class PodSpecBuilder {
         .withSubdomain(this.config.subdomain())
         .withAutomountServiceAccountToken(false)
         .withEnableServiceLinks(false)
+        .withNodeSelector(nodeSelector)
+        .withTolerations(tolerations)
+        .withPriorityClassName(request.priorityClassName())
         .withNewSecurityContext()
           .withRunAsNonRoot(true)
           .withRunAsUser(1000L)
@@ -167,7 +210,7 @@ public final class PodSpecBuilder {
           .endPort()
           .withNewResources()
             .addToRequests("memory", memory)
-            .addToRequests("cpu", new Quantity(String.valueOf(this.config.defaultCpuRequest())))
+            .addToRequests("cpu", new Quantity(String.valueOf(cpuRequest)))
             // Memory request equals limit for deterministic behaviour. No CPU limit:
             // CFS throttling produces exactly the micro stutter players read as lag,
             // and chunk generation spikes must be allowed to burst.

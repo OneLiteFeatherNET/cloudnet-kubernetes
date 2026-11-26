@@ -137,23 +137,20 @@ public final class KubernetesLocalCloudServiceFactory extends BaseLocalCloudServ
       this.nodeUniqueId,
       this.ownerConfigMapName,
       this.ownerConfigMapUid,
-      this.resolveTaskImage(config));
+      this.resolveTaskConfig(config));
   }
 
-  /** Service configuration wins over the task, mirroring the docker module. */
-  private String resolveTaskImage(ServiceConfiguration configuration) {
+  /**
+   * Service configuration wins over the task, field by field, mirroring the docker
+   * module. Never null: an unconfigured service resolves to all defaults.
+   */
+  private TaskKubernetesConfig resolveTaskConfig(ServiceConfiguration configuration) {
     var fromService = configuration.readProperty(TASK_CONFIG);
-    if (fromService != null && fromService.image() != null) {
-      return fromService.image();
-    }
 
     var task = this.serviceTaskProvider.serviceTask(configuration.serviceId().taskName());
-    if (task != null) {
-      var fromTask = task.readProperty(TASK_CONFIG);
-      if (fromTask != null) {
-        return fromTask.image();
-      }
-    }
-    return null;
+    var fromTask = task == null ? null : task.readProperty(TASK_CONFIG);
+
+    var base = fromService != null ? fromService : new TaskKubernetesConfig(null, null, null, null, null, null);
+    return base.overlay(fromTask);
   }
 }
