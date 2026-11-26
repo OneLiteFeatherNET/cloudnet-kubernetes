@@ -95,4 +95,9 @@ class ResourceNamingTest {
 
     assertTrue(LABEL_VALUE.matcher(value).matches(), value);
   }
+
+  @Test
+  void stagingKeyIsDerivedFromThePodName() {
+    assertEquals("services/cn-lobby-1-a3f9c2e1.tar", ResourceNaming.stagingKey("cn-lobby-1-a3f9c2e1"));
+  }
 }

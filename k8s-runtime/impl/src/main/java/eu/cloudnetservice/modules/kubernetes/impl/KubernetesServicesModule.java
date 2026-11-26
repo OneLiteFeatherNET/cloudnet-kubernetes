@@ -10,9 +10,12 @@ import eu.cloudnetservice.driver.provider.ServiceTaskProvider;
 import eu.cloudnetservice.driver.registry.Service;
 import eu.cloudnetservice.modules.kubernetes.config.KubernetesConfiguration;
 import eu.cloudnetservice.modules.kubernetes.impl.client.KubernetesClientFactory;
+import eu.cloudnetservice.modules.kubernetes.impl.listener.NodeSelectListener;
 import eu.cloudnetservice.modules.kubernetes.impl.pod.PodSpecBuilder;
 import eu.cloudnetservice.modules.kubernetes.impl.staging.ServiceDirectoryStager;
 import eu.cloudnetservice.modules.kubernetes.impl.state.PodStateCache;
+import eu.cloudnetservice.node.cluster.NodeServer;
+import eu.cloudnetservice.node.cluster.NodeServerProvider;
 import eu.cloudnetservice.node.config.Configuration;
 import eu.cloudnetservice.node.impl.tick.DefaultTickLoop;
 import eu.cloudnetservice.node.impl.version.ServiceVersionProvider;
@@ -21,6 +24,7 @@ import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import jakarta.inject.Singleton;
+import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,6 +41,7 @@ public final class KubernetesServicesModule extends DriverModule {
   private PodStateCache stateCache;
   private ServiceDirectoryStager stager;
   private ExecutorService executor;
+  private NodeSelectListener nodeSelectListener;
 
   /** Higher order runs first, so the configuration is present before the factory. */
   @ModuleTask(order = 32)
@@ -53,6 +58,7 @@ public final class KubernetesServicesModule extends DriverModule {
     DefaultTickLoop tickLoop,
     Configuration nodeConfig,
     CloudServiceManager serviceManager,
+    NodeServerProvider nodeServerProvider,
     EventManager eventManager,
     ServiceVersionProvider versionProvider,
     ServiceTaskProvider serviceTaskProvider
@@ -64,7 +70,8 @@ public final class KubernetesServicesModule extends DriverModule {
 
     var owner = this.ensureOwnerConfigMap(nodeUniqueId);
 
-    this.stateCache = new PodStateCache(this.client, this.configuration);
+    var clock = Clock.systemUTC();
+    this.stateCache = new PodStateCache(this.client, this.configuration, clock);
     this.stateCache.start(nodeUniqueId);
     this.reconcileOrphanedPods(serviceManager, nodeUniqueId);
 
@@ -81,13 +88,30 @@ public final class KubernetesServicesModule extends DriverModule {
       this.stateCache,
       this.stager,
       this.executor,
+      clock,
       nodeUniqueId,
       owner.getMetadata().getName(),
       owner.getMetadata().getUid());
 
     serviceManager.addCloudServiceFactory(this.configuration.factoryName(), factory);
+    this.nodeSelectListener = registerNodeSelectListener(
+      eventManager, this.configuration.factoryName(), nodeServerProvider.localNode());
     LOGGER.info("registered kubernetes runtime '{}' in namespace {}",
       this.configuration.factoryName(), this.configuration.namespace());
+  }
+
+  /**
+   * Pins services of our runtime to this node. Without it CloudNet may hand a service
+   * to a node that never registered the factory.
+   */
+  static NodeSelectListener registerNodeSelectListener(
+    EventManager eventManager,
+    String factoryName,
+    NodeServer localNode
+  ) {
+    var listener = new NodeSelectListener(factoryName, localNode);
+    eventManager.registerListener(listener);
+    return listener;
   }
 
   /**
@@ -120,35 +144,22 @@ public final class KubernetesServicesModule extends DriverModule {
 
   /**
    * Startup reconciliation: pods carrying our label that no local service claims are
-   * removed. Adoption is impossible - the connection key lived only in the previous
-   * process and the network channel is gone.
+   * removed, along with their secret and staging archive.
    */
   private void reconcileOrphanedPods(CloudServiceManager serviceManager, String nodeUniqueId) {
-    var namespace = this.configuration.namespace();
-    var pods = this.client.pods()
-      .inNamespace(namespace)
-      .withLabel(PodStateCache.LABEL_MANAGED_BY, nodeUniqueId)
-      .list()
-      .getItems();
-
-    for (var pod : pods) {
-      var labels = pod.getMetadata().getLabels();
-      var serviceId = labels == null ? null : labels.get(PodStateCache.LABEL_SERVICE_ID);
-      if (serviceId == null) {
-        continue;
-      }
-
-      var known = serviceManager.localCloudServices().stream()
-        .anyMatch(service -> service.serviceId().uniqueId().toString().equals(serviceId));
-      if (!known) {
-        LOGGER.warn("removing orphaned pod {} - no local service claims it", pod.getMetadata().getName());
-        this.client.pods().inNamespace(namespace).withName(pod.getMetadata().getName()).delete();
-      }
-    }
+    var resources = new PodResources(this.client, this.configuration.namespace(), this.stager::delete);
+    new OrphanReaper(this.client, this.configuration.namespace(), resources).reap(
+      nodeUniqueId,
+      serviceId -> serviceManager.localCloudServices().stream()
+        .anyMatch(service -> service.serviceId().uniqueId().toString().equals(serviceId)));
   }
 
   @ModuleTask(lifecycle = ModuleLifeCycle.STOPPED)
-  public void unregisterServiceFactory(CloudServiceManager serviceManager) {
+  public void unregisterServiceFactory(CloudServiceManager serviceManager, EventManager eventManager) {
+    if (this.nodeSelectListener != null) {
+      eventManager.unregisterListener(this.nodeSelectListener);
+      this.nodeSelectListener = null;
+    }
     if (this.configuration != null) {
       serviceManager.removeCloudServiceFactory(this.configuration.factoryName());
     }

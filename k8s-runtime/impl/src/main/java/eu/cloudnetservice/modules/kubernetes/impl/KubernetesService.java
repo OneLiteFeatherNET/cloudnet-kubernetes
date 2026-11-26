@@ -23,7 +23,9 @@ import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -57,6 +59,8 @@ public final class KubernetesService extends JVMService {
   private final PodStateCache stateCache;
   private final ServiceDirectoryStager stager;
   private final ExecutorService executor;
+  private final PodResources podResources;
+  private final Clock clock;
   private final String nodeUniqueId;
   private final String ownerConfigMapName;
   private final String ownerConfigMapUid;
@@ -64,6 +68,7 @@ public final class KubernetesService extends JVMService {
   private final KubernetesServiceLogCache kubernetesLogCache;
 
   private volatile String podName;
+  private volatile Instant startedAt;
   private volatile String stagingKey;
   private volatile PodConsoleInput console;
   private volatile PodLogStream logStream;
@@ -83,6 +88,7 @@ public final class KubernetesService extends JVMService {
     PodStateCache stateCache,
     ServiceDirectoryStager stager,
     ExecutorService executor,
+    Clock clock,
     String nodeUniqueId,
     String ownerConfigMapName,
     String ownerConfigMapUid,
@@ -107,6 +113,8 @@ public final class KubernetesService extends JVMService {
     this.stateCache = stateCache;
     this.stager = stager;
     this.executor = executor;
+    this.podResources = new PodResources(client, kubernetesConfig.namespace(), stager::delete);
+    this.clock = clock;
     this.nodeUniqueId = nodeUniqueId;
     this.ownerConfigMapName = ownerConfigMapName;
     this.ownerConfigMapUid = ownerConfigMapUid;
@@ -124,13 +132,11 @@ public final class KubernetesService extends JVMService {
    */
   @Override
   public boolean alive() {
-    var serviceId = this.serviceId().uniqueId().toString();
-    if (this.stateCache.running(serviceId)) {
-      return true;
-    }
-    // Still scheduling or pulling: not Running yet, but very much not dead.
-    return this.stateCache.known(serviceId)
-      && this.stateCache.withinStartupGrace(serviceId, STARTUP_GRACE);
+    // Still scheduling or pulling is not dead; a Failed or Succeeded pod is, even early on.
+    return this.stateCache.alive(
+      this.serviceId().uniqueId().toString(),
+      this.startedAt,
+      STARTUP_GRACE);
   }
 
   @Override
@@ -150,12 +156,18 @@ public final class KubernetesService extends JVMService {
   protected void doStartProcess(List<String> arguments, Path wrapperPath, Path applicationFilePath) {
     var name = ResourceNaming.podName(this.serviceId().name(), this.serviceId().uniqueId());
     this.podName = name;
+    this.startedAt = this.clock.instant();
+    // A static service keeps its pod name across restarts. A pod still terminating from
+    // the previous run holds that name, and creating over it fails with 409.
+    this.podResources.awaitGone(
+      name,
+      Duration.ofSeconds(this.kubernetesConfig.terminationGracePeriodSeconds() + 30L));
 
     try {
       // 1) Hand the directory prepareService() just built over to the pod. Bind mounts
       //    with identical host and container paths, which is how the docker module
       //    solves this, cannot exist across hosts.
-      this.stagingKey = this.stager.upload(this.serviceDirectory, "services/" + name + ".tar");
+      this.stagingKey = this.stager.upload(this.serviceDirectory, ResourceNaming.stagingKey(name));
 
       // 2) The connection key ships separately as a secret. This works because the
       //    wrapper reads its config path from an overridable system property.
@@ -220,7 +232,8 @@ public final class KubernetesService extends JVMService {
       .withData(Map.of("wrapper.json", Base64.getEncoder().encodeToString(wrapperJson)))
       .build();
 
-    this.client.secrets().inNamespace(this.kubernetesConfig.namespace()).resource(secret).create();
+    // createOrReplace: a static service restarts under the same name and must not fail on the leftover secret.
+    this.client.secrets().inNamespace(this.kubernetesConfig.namespace()).resource(secret).createOrReplace();
   }
 
   /**
@@ -251,6 +264,8 @@ public final class KubernetesService extends JVMService {
         .withName(name)
         .withGracePeriod(this.kubernetesConfig.terminationGracePeriodSeconds())
         .delete();
+      // The pod is on its way out and nothing reads the key or the archive any more.
+      this.podResources.removeSecretAndStaging(name);
     }
   }
 
@@ -265,23 +280,13 @@ public final class KubernetesService extends JVMService {
   private void cleanupResources(String name) {
     if (name != null) {
       try {
-        var namespace = this.kubernetesConfig.namespace();
-        this.client.pods().inNamespace(namespace).withName(name).delete();
-        this.client.secrets().inNamespace(namespace).withName(ResourceNaming.secretName(name)).delete();
+        this.client.pods().inNamespace(this.kubernetesConfig.namespace()).withName(name).delete();
       } catch (Exception exception) {
-        LOGGER.debug("unable to remove kubernetes resources for {}", name, exception);
+        LOGGER.debug("unable to remove pod {}", name, exception);
       }
+      this.podResources.removeSecretAndStaging(name);
     }
-
-    var key = this.stagingKey;
-    if (key != null) {
-      try {
-        this.stager.delete(key);
-      } catch (Exception exception) {
-        LOGGER.debug("unable to remove staging object {}", key, exception);
-      }
-      this.stagingKey = null;
-    }
+    this.stagingKey = null;
   }
 
   /**

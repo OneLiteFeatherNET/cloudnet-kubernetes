@@ -52,6 +52,11 @@ public final class ResourceNaming {
     return clamp(podName + "-wrapper");
   }
 
+  /** Object key of the staging archive a pod unpacks its service directory from. */
+  public static String stagingKey(String podName) {
+    return "services/" + podName + ".tar";
+  }
+
   /**
    * Deliberately derived from the service name only. Including the uniqueId would
    * hand a static service a fresh, empty volume on every start - mirroring how
