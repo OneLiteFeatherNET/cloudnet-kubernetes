@@ -5,6 +5,7 @@ import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.informers.ResourceEventHandler;
 import io.fabric8.kubernetes.client.informers.SharedIndexInformer;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -28,15 +29,17 @@ public final class PodStateCache implements AutoCloseable {
 
   private final KubernetesClient client;
   private final KubernetesConfiguration config;
+  private final Clock clock;
   private final Map<String, Pod> byServiceId = new ConcurrentHashMap<>();
   private final Map<String, Instant> firstSeen = new ConcurrentHashMap<>();
 
   private volatile SharedIndexInformer<Pod> informer;
   private volatile Consumer<String> vanishListener = serviceId -> { };
 
-  public PodStateCache(KubernetesClient client, KubernetesConfiguration config) {
+  public PodStateCache(KubernetesClient client, KubernetesConfiguration config, Clock clock) {
     this.client = client;
     this.config = config;
+    this.clock = clock;
   }
 
   public void vanishListener(Consumer<String> listener) {
@@ -60,12 +63,7 @@ public final class PodStateCache implements AutoCloseable {
 
         @Override
         public void onDelete(Pod pod, boolean unknownFinalState) {
-          var id = serviceId(pod);
-          if (id != null) {
-            byServiceId.remove(id);
-            firstSeen.remove(id);
-            vanishListener.accept(id);
-          }
+          forget(pod);
         }
       }, RESYNC_MILLIS);
   }
@@ -94,18 +92,29 @@ public final class PodStateCache implements AutoCloseable {
    */
   public boolean withinStartupGrace(String serviceId, Duration grace) {
     var seen = this.firstSeen.get(serviceId);
-    return seen != null && Instant.now().isBefore(seen.plus(grace));
+    return seen != null && this.clock.instant().isBefore(seen.plus(grace));
   }
 
   public Set<String> knownServiceIds() {
     return Set.copyOf(this.byServiceId.keySet());
   }
 
-  private void index(Pod pod) {
+  /** Informer callback for add and update. Package-private so tests can drive it directly. */
+  void index(Pod pod) {
     var id = serviceId(pod);
     if (id != null) {
       this.byServiceId.put(id, pod);
-      this.firstSeen.putIfAbsent(id, Instant.now());
+      this.firstSeen.putIfAbsent(id, this.clock.instant());
+    }
+  }
+
+  /** Informer callback for delete. Package-private so tests can drive it directly. */
+  void forget(Pod pod) {
+    var id = serviceId(pod);
+    if (id != null) {
+      this.byServiceId.remove(id);
+      this.firstSeen.remove(id);
+      this.vanishListener.accept(id);
     }
   }
 

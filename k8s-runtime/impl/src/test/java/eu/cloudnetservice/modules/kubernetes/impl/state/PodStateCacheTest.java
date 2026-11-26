@@ -1,28 +1,56 @@
 package eu.cloudnetservice.modules.kubernetes.impl.state;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import eu.cloudnetservice.modules.kubernetes.config.KubernetesConfiguration;
+import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
-import io.fabric8.kubernetes.client.KubernetesClient;
-import io.fabric8.kubernetes.client.server.mock.EnableKubernetesMockClient;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 
-@EnableKubernetesMockClient(crud = true)
+/**
+ * The cache is driven through its informer callbacks directly. No API server, no
+ * wall clock: the time source is a fixed clock that each test moves explicitly.
+ */
 class PodStateCacheTest {
-
-  static KubernetesClient client;
 
   private static final String SERVICE_ID = "a3f9c2e1-4b7d-4c2a-9f11-8e6d0a5b3c74";
 
-  private void createPod(String name, String serviceId, String phase) {
-    client.pods().inNamespace("cloudnet").resource(new PodBuilder()
+  /** Time only moves when a test says so. */
+  private static final class ManualClock extends Clock {
+
+    private Instant now = Instant.parse("2026-11-26T10:00:00Z");
+
+    void advance(Duration duration) {
+      this.now = this.now.plus(duration);
+    }
+
+    @Override
+    public ZoneOffset getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(java.time.ZoneId zone) {
+      return this;
+    }
+
+    @Override
+    public Instant instant() {
+      return this.now;
+    }
+  }
+
+  private static Pod pod(String name, String serviceId, String phase) {
+    return new PodBuilder()
       .withNewMetadata()
         .withName(name)
         .withNamespace("cloudnet")
@@ -31,85 +59,90 @@ class PodStateCacheTest {
           PodStateCache.LABEL_SERVICE_ID, serviceId))
       .endMetadata()
       .withNewStatus().withPhase(phase).endStatus()
-      .build()).create();
+      .build();
   }
 
-  private PodStateCache startedCache() {
-    var cache = new PodStateCache(client, KubernetesConfiguration.builder().build());
-    cache.start("node-1");
-    return cache;
+  /** Never started, so the client is never dereferenced. */
+  private static PodStateCache cache(ManualClock clock) {
+    return new PodStateCache(null, KubernetesConfiguration.builder().build(), clock);
   }
 
   @Test
   void runningPodIsReportedAlive() {
-    this.createPod("cn-lobby-1-a3f9c2e1", SERVICE_ID, "Running");
-    try (var cache = this.startedCache()) {
-      Awaitility.await().atMost(10, TimeUnit.SECONDS)
-        .untilAsserted(() -> assertTrue(cache.running(SERVICE_ID)));
-    }
+    var cache = cache(new ManualClock());
+    cache.index(pod("cn-lobby-1-a3f9c2e1", SERVICE_ID, "Running"));
+
+    assertTrue(cache.running(SERVICE_ID), "a Running pod must be reported as running");
   }
 
   @Test
   void pendingPodIsKnownButNotRunning() {
     // Kubernetes has Pending, docker does not. Without this distinction the watchdog
     // would stop a service that is merely still being scheduled.
-    this.createPod("cn-lobby-2-b1c2d3e4", "b1c2d3e4-0000-0000-0000-000000000000", "Pending");
-    try (var cache = this.startedCache()) {
-      Awaitility.await().atMost(10, TimeUnit.SECONDS)
-        .untilAsserted(() -> assertTrue(cache.known("b1c2d3e4-0000-0000-0000-000000000000")));
-      assertFalse(cache.running("b1c2d3e4-0000-0000-0000-000000000000"));
-    }
+    var cache = cache(new ManualClock());
+    cache.index(pod("cn-lobby-2-b1c2d3e4", SERVICE_ID, "Pending"));
+
+    assertTrue(cache.known(SERVICE_ID), "a Pending pod must be known to the cache");
+    assertFalse(cache.running(SERVICE_ID), "a Pending pod must not be reported as running");
   }
 
   @Test
-  void pendingPodStaysInsideTheStartupGraceWindow() {
-    this.createPod("cn-lobby-3-c1c2d3e4", "c1c2d3e4-0000-0000-0000-000000000000", "Pending");
-    try (var cache = this.startedCache()) {
-      var id = "c1c2d3e4-0000-0000-0000-000000000000";
-      Awaitility.await().atMost(10, TimeUnit.SECONDS)
-        .untilAsserted(() -> assertTrue(cache.known(id)));
-      assertTrue(cache.withinStartupGrace(id, Duration.ofMinutes(2)));
-      assertFalse(cache.withinStartupGrace(id, Duration.ZERO));
-    }
+  void pendingPodIsInsideTheStartupGraceWindowUntilItExpires() {
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    cache.index(pod("cn-lobby-3-c1c2d3e4", SERVICE_ID, "Pending"));
+
+    clock.advance(Duration.ofMinutes(2));
+    assertTrue(cache.withinStartupGrace(SERVICE_ID, Duration.ofMinutes(3)),
+      "two minutes into a three minute grace window the pod must still count as starting");
+
+    clock.advance(Duration.ofMinutes(2));
+    assertFalse(cache.withinStartupGrace(SERVICE_ID, Duration.ofMinutes(3)),
+      "four minutes into a three minute grace window the grace must have expired");
+  }
+
+  @Test
+  void startupGraceIsMeasuredFromTheFirstSightingOfThePod() {
+    var clock = new ManualClock();
+    var cache = cache(clock);
+    clock.advance(Duration.ofMinutes(10));
+    cache.index(pod("cn-lobby-6-f1c2d3e4", SERVICE_ID, "Pending"));
+
+    assertTrue(cache.withinStartupGrace(SERVICE_ID, Duration.ofMinutes(1)),
+      "the grace window must start when the cache first sees the pod, not at process start");
   }
 
   @Test
   void unknownServiceIsNeitherKnownNorRunning() {
-    try (var cache = this.startedCache()) {
-      assertFalse(cache.known("does-not-exist"));
-      assertFalse(cache.running("does-not-exist"));
-      assertFalse(cache.withinStartupGrace("does-not-exist", Duration.ofMinutes(2)));
+    var cache = cache(new ManualClock());
+
+    assertFalse(cache.known("does-not-exist"));
+    assertFalse(cache.running("does-not-exist"));
+    assertFalse(cache.withinStartupGrace("does-not-exist", Duration.ofMinutes(2)));
+  }
+
+  @Test
+  void runningCheckIsAnsweredFromTheCacheAlone() {
+    // The watchdog calls this once per second per service. The cache has no client at
+    // all in this test, so any api call would fail with a NullPointerException.
+    var cache = cache(new ManualClock());
+    cache.index(pod("cn-lobby-4-d1c2d3e4", SERVICE_ID, "Running"));
+
+    for (var i = 0; i < 5000; i++) {
+      assertTrue(cache.running(SERVICE_ID), "a Running pod must stay running on every check");
     }
   }
 
   @Test
-  void repeatedAliveChecksNeverTouchTheApiServer() {
-    // The watchdog calls this once per second per service.
-    this.createPod("cn-lobby-4-d1c2d3e4", "d1c2d3e4-0000-0000-0000-000000000000", "Running");
-    try (var cache = this.startedCache()) {
-      var id = "d1c2d3e4-0000-0000-0000-000000000000";
-      Awaitility.await().atMost(10, TimeUnit.SECONDS)
-        .untilAsserted(() -> assertTrue(cache.running(id)));
+  void deletionNotifiesTheVanishListener() {
+    var cache = cache(new ManualClock());
+    List<String> vanished = new ArrayList<>();
+    cache.vanishListener(vanished::add);
+    cache.index(pod("cn-lobby-5-e1c2d3e4", SERVICE_ID, "Running"));
 
-      for (var i = 0; i < 5000; i++) {
-        assertTrue(cache.running(id));
-      }
-    }
-  }
+    cache.forget(pod("cn-lobby-5-e1c2d3e4", SERVICE_ID, "Running"));
 
-  @Test
-  void deletionNotifiesTheVanishListener() throws Exception {
-    this.createPod("cn-lobby-5-e1c2d3e4", "e1c2d3e4-0000-0000-0000-000000000000", "Running");
-    var latch = new CountDownLatch(1);
-
-    try (var cache = new PodStateCache(client, KubernetesConfiguration.builder().build())) {
-      cache.vanishListener(serviceId -> latch.countDown());
-      cache.start("node-1");
-      Awaitility.await().atMost(10, TimeUnit.SECONDS)
-        .untilAsserted(() -> assertTrue(cache.known("e1c2d3e4-0000-0000-0000-000000000000")));
-
-      client.pods().inNamespace("cloudnet").withName("cn-lobby-5-e1c2d3e4").delete();
-      assertTrue(latch.await(10, TimeUnit.SECONDS), "vanish listener must fire on delete");
-    }
+    assertEquals(List.of(SERVICE_ID), vanished, "the vanish listener must fire once with the service id");
+    assertFalse(cache.known(SERVICE_ID), "a deleted pod must no longer be known");
   }
 }

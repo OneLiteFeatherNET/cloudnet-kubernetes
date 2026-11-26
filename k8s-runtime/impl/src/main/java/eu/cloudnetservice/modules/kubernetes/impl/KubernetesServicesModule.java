@@ -24,6 +24,7 @@ import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import jakarta.inject.Singleton;
+import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -69,7 +70,7 @@ public final class KubernetesServicesModule extends DriverModule {
 
     var owner = this.ensureOwnerConfigMap(nodeUniqueId);
 
-    this.stateCache = new PodStateCache(this.client, this.configuration);
+    this.stateCache = new PodStateCache(this.client, this.configuration, Clock.systemUTC());
     this.stateCache.start(nodeUniqueId);
     this.reconcileOrphanedPods(serviceManager, nodeUniqueId);
 
