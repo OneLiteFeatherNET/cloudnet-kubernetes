@@ -155,20 +155,33 @@ public final class PodSpecBuilder {
           // interpolated text. Bucket name and object key would otherwise be parsed
           // as shell syntax, and the only thing standing between a crafted config
           // and command execution would be the sanitising in ResourceNaming.
+          // The remote is defined entirely by RCLONE_CONFIG_STAGING_* variables. RCLONE_CONFIG
+          // points at a path that does not exist, so rclone never reads a config file.
           .withCommand("/bin/sh", "-c",
             "set -eu; "
-              + "mc alias set staging \"$S3_ENDPOINT\" \"$S3_ACCESS_KEY\" \"$S3_SECRET_KEY\"; "
-              + "mc cp \"staging/$S3_BUCKET/$S3_OBJECT_KEY\" /tmp/service.tar; "
+              + "rclone copyto \"staging:$S3_BUCKET/$S3_OBJECT_KEY\" /tmp/service.tar; "
               + "tar -xf /tmp/service.tar -C /cloudnet/service; "
               + "rm -f /tmp/service.tar")
-          // The pod has no writable HOME for uid 1000, so mc keeps its config under /tmp.
           .addNewEnv()
-            .withName("MC_CONFIG_DIR")
-            .withValue("/tmp/.mc")
+            .withName("RCLONE_CONFIG")
+            .withValue("/tmp/rclone.conf")
           .endEnv()
           .addNewEnv()
-            .withName("S3_ENDPOINT")
+            .withName("RCLONE_CONFIG_STAGING_TYPE")
+            .withValue("s3")
+          .endEnv()
+          .addNewEnv()
+            .withName("RCLONE_CONFIG_STAGING_PROVIDER")
+            .withValue("Ceph")
+          .endEnv()
+          .addNewEnv()
+            .withName("RCLONE_CONFIG_STAGING_ENDPOINT")
             .withValue(this.config.staging().endpoint())
+          .endEnv()
+          // Ceph RGW needs path style addressing; see StagingConfiguration.
+          .addNewEnv()
+            .withName("RCLONE_CONFIG_STAGING_FORCE_PATH_STYLE")
+            .withValue(String.valueOf(this.config.staging().pathStyleAccess()))
           .endEnv()
           .addNewEnv()
             .withName("S3_BUCKET")
@@ -179,13 +192,13 @@ public final class PodSpecBuilder {
             .withValue(request.stagingKey())
           .endEnv()
           .addNewEnv()
-            .withName("S3_ACCESS_KEY")
+            .withName("RCLONE_CONFIG_STAGING_ACCESS_KEY_ID")
             .withNewValueFrom()
               .withNewSecretKeyRef("accessKey", this.config.staging().credentialsSecretName(), false)
             .endValueFrom()
           .endEnv()
           .addNewEnv()
-            .withName("S3_SECRET_KEY")
+            .withName("RCLONE_CONFIG_STAGING_SECRET_ACCESS_KEY")
             .withNewValueFrom()
               .withNewSecretKeyRef("secretKey", this.config.staging().credentialsSecretName(), false)
             .endValueFrom()
@@ -194,7 +207,7 @@ public final class PodSpecBuilder {
             .withName("service-dir")
             .withMountPath("/cloudnet/service")
           .endVolumeMount()
-          // mc and the archive step write to /tmp; an emptyDir keeps that working on a read-only root fs.
+          // The archive is written to /tmp; an emptyDir keeps that working on a read-only root fs.
           .addNewVolumeMount()
             .withName("init-tmp")
             .withMountPath("/tmp")

@@ -43,9 +43,9 @@ public record KubernetesConfiguration(
     private String clusterDomain = "cluster.local";
     private String subdomain = "cloudnet-services";
     private String serviceImage = "ghcr.io/onelitefeathernet/cloudnet-service:4.0.0-RC17";
-    // Only needs an S3 client and tar; minio/mc carries both. Pinned, not :latest.
+    // Needs rclone for the S3 copy plus /bin/sh and tar for the unpack. Pinned, not :latest.
     // Override via the stagingImage key in config.json when a different tag is needed.
-    private String stagingImage = "minio/mc:RELEASE.2024-11-21T17-21-54Z";
+    private String stagingImage = "docker.io/rclone/rclone:1.72.0";
     private String nodeServiceDns = "cloudnet-node.cloudnet.svc.cluster.local";
     private int nodeListenerPort = 1410;
     // Must exceed CloudNet's own processTerminationTimeoutSeconds, otherwise

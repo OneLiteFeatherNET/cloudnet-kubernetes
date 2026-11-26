@@ -36,7 +36,7 @@ class KubernetesConfigurationTest {
     // :latest changes under the module without a release; the tag must be explicit.
     var image = KubernetesConfiguration.builder().build().stagingImage();
 
-    assertTrue(image.startsWith("minio/mc:"), image);
+    assertEquals("docker.io/rclone/rclone:1.72.0", image);
     assertFalse(image.endsWith(":latest"), "the staging image must not float: " + image);
   }
 

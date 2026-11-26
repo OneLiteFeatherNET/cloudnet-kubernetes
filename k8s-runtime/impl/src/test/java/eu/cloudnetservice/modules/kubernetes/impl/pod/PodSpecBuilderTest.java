@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import eu.cloudnetservice.modules.kubernetes.config.KubernetesConfiguration;
+import io.fabric8.kubernetes.api.model.Pod;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -173,11 +174,40 @@ class PodSpecBuilderTest {
     var envs = this.builder.build(this.request).getSpec().getInitContainers().getFirst().getEnv();
 
     var accessKey = envs.stream()
-      .filter(e -> e.getName().equals("S3_ACCESS_KEY"))
+      .filter(e -> e.getName().equals("RCLONE_CONFIG_STAGING_ACCESS_KEY_ID"))
       .findFirst().orElseThrow();
     assertNull(accessKey.getValue(), "credentials must never be inlined into the pod spec");
     assertEquals("cloudnet-staging-credentials",
       accessKey.getValueFrom().getSecretKeyRef().getName());
+  }
+
+  @Test
+  void stagingRemoteIsDefinedByEnvironmentWithoutAConfigFile() {
+    var env = envOf(this.builder.build(this.request));
+
+    assertEquals("s3", env.get("RCLONE_CONFIG_STAGING_TYPE"));
+    assertEquals("Ceph", env.get("RCLONE_CONFIG_STAGING_PROVIDER"));
+    assertEquals("http://rook-ceph-rgw-cloudnet-store.rook-ceph.svc",
+      env.get("RCLONE_CONFIG_STAGING_ENDPOINT"));
+    assertEquals("true", env.get("RCLONE_CONFIG_STAGING_FORCE_PATH_STYLE"),
+      "Ceph RGW needs path style addressing");
+    // Points at a path that does not exist, so rclone never reads a config file.
+    assertEquals("/tmp/rclone.conf", env.get("RCLONE_CONFIG"));
+  }
+
+  @Test
+  void initContainerUsesRcloneNotMinioClient() {
+    var script = String.join(" ", this.builder.build(this.request).getSpec()
+      .getInitContainers().getFirst().getCommand());
+
+    assertTrue(script.contains("rclone copyto \"staging:$S3_BUCKET/$S3_OBJECT_KEY\" /tmp/service.tar"), script);
+    assertFalse(script.contains("mc "), "the minio client must no longer be used: " + script);
+  }
+
+  private static java.util.Map<String, String> envOf(Pod pod) {
+    return pod.getSpec().getInitContainers().getFirst().getEnv().stream()
+      .filter(e -> e.getValue() != null)
+      .collect(java.util.stream.Collectors.toMap(e -> e.getName(), e -> e.getValue()));
   }
 
   @Test
@@ -263,17 +293,6 @@ class PodSpecBuilderTest {
     var label = this.builder.build(withTask).getMetadata().getLabels().get("cloudnet.eu/task");
 
     assertEquals("Lobby--1", label);
-  }
-
-  @Test
-  void mcConfigDirIsSetToAWritableLocationForTheUnprivilegedUser() {
-    // The pod runs as uid 1000 without a writable HOME, so mc alias set cannot write ~/.mc.
-    var env = this.builder.build(this.request).getSpec().getInitContainers().getFirst().getEnv();
-
-    var mcConfigDir = env.stream()
-      .filter(e -> e.getName().equals("MC_CONFIG_DIR"))
-      .findFirst().orElseThrow(() -> new AssertionError("MC_CONFIG_DIR missing from the init container"));
-    assertEquals("/tmp/.mc", mcConfigDir.getValue());
   }
 
   @Test
