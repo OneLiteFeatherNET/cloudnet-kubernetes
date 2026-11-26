@@ -36,6 +36,8 @@ cp k8s-runtime/impl/build/libs/cloudnet-kubernetes.jar <cloudnet>/modules/
 Restart the node. It writes `modules/CloudNet-Kubernetes/config.json` on first start —
 adjust `namespace`, `nodeServiceDns` and the `staging` block there, then restart again.
 
+The node uploads through `staging.endpoint`. Set `staging.podEndpoint` only when the node sits outside the cluster and that external endpoint uses a private CA the pods do not trust; then point it at the cluster-internal object store, for example `http://rook-ceph-rgw-<store>.<namespace>.svc:80`. Leave it out and the pods use `endpoint`.
+
 ## 4. Point a task at the runtime
 
 ```
