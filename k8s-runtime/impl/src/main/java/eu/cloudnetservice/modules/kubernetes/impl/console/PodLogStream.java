@@ -68,6 +68,7 @@ public final class PodLogStream {
           ? loggable.sinceTime(DateTimeFormatter.ISO_INSTANT.format(seen))
           : loggable;
 
+        this.parser.beginReplay();
         try (var current = tailed.watchLog()) {
           this.watch = current;
           backoff = INITIAL_BACKOFF;
