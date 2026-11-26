@@ -253,6 +253,17 @@ class PodSpecBuilderTest {
     assertNull(this.builder.build(overrides(null, null, null, null, null)).getSpec().getPriorityClassName());
   }
 
+  @Test
+  void taskLabelWithIllegalCharactersIsSanitisedToAValidLabelValue() {
+    var withTask = new PodSpecBuilder.PodRequest(
+      "Lobby-1", ID, "Lobby #1", 4096, 25565, "node-1",
+      "owner", "uid", null, "services/x.tar", List.of("java"));
+
+    var label = this.builder.build(withTask).getMetadata().getLabels().get("cloudnet.eu/task");
+
+    assertEquals("Lobby--1", label);
+  }
+
   private PodSpecBuilder.PodRequest overrides(
     Map<String, String> nodeSelector,
     String tolerationKey,

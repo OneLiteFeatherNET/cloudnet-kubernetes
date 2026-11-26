@@ -90,7 +90,7 @@ public final class PodSpecBuilder {
         .withNamespace(this.config.namespace())
         .withLabels(Map.of(
           "cloudnet.eu/component", "service",
-          "cloudnet.eu/task", request.taskName(),
+          "cloudnet.eu/task", ResourceNaming.labelValue(request.taskName()),
           "cloudnet.eu/service-id", request.serviceId().toString(),
           "cloudnet.eu/managed-by", request.nodeUniqueId()))
         // Anchored to a long lived ConfigMap, never to the node pod: a rolling update

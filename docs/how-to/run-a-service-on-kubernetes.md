@@ -50,7 +50,7 @@ service create 1 Lobby --start
 ```
 
 ```bash
-kubectl -n cloudnet get pods -l cloudnet.eu/task=lobby -w
+kubectl -n cloudnet get pods -l cloudnet.eu/task=Lobby -w
 ```
 
 The pod moves through `Pending` into `Running`, and the node console shows the service
@@ -73,7 +73,7 @@ service Lobby-1 stop
 ```
 
 ```bash
-kubectl -n cloudnet get pods,secrets -l cloudnet.eu/task=lobby
+kubectl -n cloudnet get pods,secrets -l cloudnet.eu/task=Lobby
 ```
 
 Nothing should remain. The staging object is removed as well.

@@ -26,6 +26,28 @@ public final class ResourceNaming {
     return clamp("cn-" + sanitize(serviceName) + "-" + shortId);
   }
 
+  /**
+   * Value of a Kubernetes label, such as {@code cloudnet.eu/task}. Label values are
+   * case sensitive and may contain {@code [A-Za-z0-9_.-]}, so unlike a DNS name the
+   * task name keeps its case; only the characters outside that set are replaced.
+   * Values must start and end alphanumeric and stay within 63 characters.
+   */
+  public static String labelValue(String raw) {
+    var cleaned = raw.replaceAll("[^A-Za-z0-9_.-]", "-")
+      .replaceAll("^[^A-Za-z0-9]+", "")
+      .replaceAll("[^A-Za-z0-9]+$", "");
+    if (cleaned.isEmpty()) {
+      return "task-" + shortHash(raw);
+    }
+    if (cleaned.length() <= MAX_DNS_1123) {
+      return cleaned;
+    }
+
+    var suffix = "-" + shortHash(cleaned);
+    var head = cleaned.substring(0, MAX_DNS_1123 - suffix.length()).replaceAll("[^A-Za-z0-9]+$", "");
+    return head + suffix;
+  }
+
   public static String secretName(String podName) {
     return clamp(podName + "-wrapper");
   }
