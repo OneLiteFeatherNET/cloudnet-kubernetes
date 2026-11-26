@@ -59,12 +59,14 @@ public final class PodLogStream {
           .withName(this.podName)
           .usingTimestamps();
 
-        // sinceTime and tailingLines return different Loggable subtypes, so this
-        // cannot be folded into an Optional chain.
+        // sinceTime returns a different Loggable subtype than the plain request, so this
+        // cannot be folded into an Optional chain. Without a seen line this is the first
+        // successful connect: the pod may have printed its startup output while Pending or
+        // Init, so the whole container log is read instead of a tail of it.
         var seen = this.parser.lastSeen().orElse(null);
         var tailed = seen != null
           ? loggable.sinceTime(DateTimeFormatter.ISO_INSTANT.format(seen))
-          : loggable.tailingLines(0);
+          : loggable;
 
         try (var current = tailed.watchLog()) {
           this.watch = current;
