@@ -55,4 +55,9 @@ class ResourceNamingTest {
     var name = ResourceNaming.podName("Lobby_#1 Test", ID);
     assertTrue(DNS_1123.matcher(name).matches(), name);
   }
+
+  @Test
+  void stagingKeyIsDerivedFromThePodName() {
+    assertEquals("services/cn-lobby-1-a3f9c2e1.tar", ResourceNaming.stagingKey("cn-lobby-1-a3f9c2e1"));
+  }
 }
