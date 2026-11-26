@@ -10,9 +10,12 @@ import eu.cloudnetservice.driver.provider.ServiceTaskProvider;
 import eu.cloudnetservice.driver.registry.Service;
 import eu.cloudnetservice.modules.kubernetes.config.KubernetesConfiguration;
 import eu.cloudnetservice.modules.kubernetes.impl.client.KubernetesClientFactory;
+import eu.cloudnetservice.modules.kubernetes.impl.listener.NodeSelectListener;
 import eu.cloudnetservice.modules.kubernetes.impl.pod.PodSpecBuilder;
 import eu.cloudnetservice.modules.kubernetes.impl.staging.ServiceDirectoryStager;
 import eu.cloudnetservice.modules.kubernetes.impl.state.PodStateCache;
+import eu.cloudnetservice.node.cluster.NodeServer;
+import eu.cloudnetservice.node.cluster.NodeServerProvider;
 import eu.cloudnetservice.node.config.Configuration;
 import eu.cloudnetservice.node.impl.tick.DefaultTickLoop;
 import eu.cloudnetservice.node.impl.version.ServiceVersionProvider;
@@ -37,6 +40,7 @@ public final class KubernetesServicesModule extends DriverModule {
   private PodStateCache stateCache;
   private ServiceDirectoryStager stager;
   private ExecutorService executor;
+  private NodeSelectListener nodeSelectListener;
 
   /** Higher order runs first, so the configuration is present before the factory. */
   @ModuleTask(order = 32)
@@ -53,6 +57,7 @@ public final class KubernetesServicesModule extends DriverModule {
     DefaultTickLoop tickLoop,
     Configuration nodeConfig,
     CloudServiceManager serviceManager,
+    NodeServerProvider nodeServerProvider,
     EventManager eventManager,
     ServiceVersionProvider versionProvider,
     ServiceTaskProvider serviceTaskProvider
@@ -86,8 +91,24 @@ public final class KubernetesServicesModule extends DriverModule {
       owner.getMetadata().getUid());
 
     serviceManager.addCloudServiceFactory(this.configuration.factoryName(), factory);
+    this.nodeSelectListener = registerNodeSelectListener(
+      eventManager, this.configuration.factoryName(), nodeServerProvider.localNode());
     LOGGER.info("registered kubernetes runtime '{}' in namespace {}",
       this.configuration.factoryName(), this.configuration.namespace());
+  }
+
+  /**
+   * Pins services of our runtime to this node. Without it CloudNet may hand a service
+   * to a node that never registered the factory.
+   */
+  static NodeSelectListener registerNodeSelectListener(
+    EventManager eventManager,
+    String factoryName,
+    NodeServer localNode
+  ) {
+    var listener = new NodeSelectListener(factoryName, localNode);
+    eventManager.registerListener(listener);
+    return listener;
   }
 
   /**
@@ -148,7 +169,11 @@ public final class KubernetesServicesModule extends DriverModule {
   }
 
   @ModuleTask(lifecycle = ModuleLifeCycle.STOPPED)
-  public void unregisterServiceFactory(CloudServiceManager serviceManager) {
+  public void unregisterServiceFactory(CloudServiceManager serviceManager, EventManager eventManager) {
+    if (this.nodeSelectListener != null) {
+      eventManager.unregisterListener(this.nodeSelectListener);
+      this.nodeSelectListener = null;
+    }
     if (this.configuration != null) {
       serviceManager.removeCloudServiceFactory(this.configuration.factoryName());
     }
