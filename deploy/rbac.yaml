@@ -1,0 +1,74 @@
+# RBAC for the CloudNet node running the kubernetes runtime module.
+#
+# Everything is namespaced - there is not a single ClusterRole. That is a direct
+# consequence of not using CRDs: CRDs are cluster scoped and would have forced
+# customresourcedefinitions permissions plus a ClusterRole on top.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudnet-node
+  namespace: cloudnet
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cloudnet-service-runtime
+  namespace: cloudnet
+rules:
+  # No update or patch on pods: the module never mutates a running pod.
+  # deletecollection lets a shutting down node clear its pods in one call.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+
+  # Console output. Both verbs are required - watchLog fails with get alone.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+
+  # Console input. attach is its own subresource; granting exec does NOT cover it,
+  # and the resulting 403 only surfaces at runtime on the first console command.
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["create", "get"]
+
+  # The single headless service backing per-pod DNS records.
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create"]
+
+  # Owner anchor per node, so pods are garbage collected when the node leaves.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+
+  # wrapper.json including the connection key.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+  # Split brain protection between multiple CloudNet nodes in one namespace.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update"]
+
+  # Deliberately omitted: pods/exec (a shell into every gameserver; only needed once
+  # the web UI edits files in running pods) and pods/portforward.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cloudnet-service-runtime
+  namespace: cloudnet
+subjects:
+  - kind: ServiceAccount
+    name: cloudnet-node
+    namespace: cloudnet
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cloudnet-service-runtime

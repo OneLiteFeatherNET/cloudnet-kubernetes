@@ -2,3 +2,5 @@
 build/
 .idea/
 *.iml
+# Local runtime state (logs, data) of k8s-runtime, never committed
+k8s-runtime/impl/local/

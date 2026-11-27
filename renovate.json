@@ -1,0 +1,26 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>OneLiteFeatherNET/renovate:default(OneLiteFeatherNET/cloudnet-kubernetes-maintainers)"
+  ],
+  "packageRules": [
+    {
+      "description": "CloudNet release candidates are pinned deliberately - the module compiles against node-impl, which is not public API and shifts between candidates.",
+      "matchPackageNames": [
+        "eu.cloudnetservice.cloudnet:bom"
+      ],
+      "allowedVersions": "<=4.0.0-RC17"
+    },
+    {
+      "description": "The kubernetes client tracks the cluster version; bumps get reviewed, never automerged.",
+      "matchPackageNames": [
+        "io.fabric8:kubernetes-client-bom",
+        "io.fabric8:kubernetes-client",
+        "io.fabric8:kubernetes-httpclient-jdk",
+        "io.fabric8:kubernetes-server-mock"
+      ],
+      "automerge": false,
+      "groupName": "fabric8 kubernetes client"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+name: Security scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    uses: OneLiteFeatherNET/workflows/.github/workflows/security-scan.yml@v2.8.1
+    secrets: inherit
