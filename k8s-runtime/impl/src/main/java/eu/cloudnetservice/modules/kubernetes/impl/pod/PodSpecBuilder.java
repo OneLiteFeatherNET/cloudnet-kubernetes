@@ -176,7 +176,8 @@ public final class PodSpecBuilder {
           .endEnv()
           .addNewEnv()
             .withName("RCLONE_CONFIG_STAGING_ENDPOINT")
-            .withValue(this.config.staging().endpoint())
+            // The pod may reach the object store through a different endpoint than the node uses.
+            .withValue(this.config.staging().effectivePodEndpoint())
           .endEnv()
           // Ceph RGW needs path style addressing; see StagingConfiguration.
           .addNewEnv()

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import eu.cloudnetservice.modules.kubernetes.config.KubernetesConfiguration;
+import eu.cloudnetservice.modules.kubernetes.config.StagingConfiguration;
 import io.fabric8.kubernetes.api.model.Pod;
 import java.util.List;
 import java.util.Map;
@@ -202,6 +203,49 @@ class PodSpecBuilderTest {
 
     assertTrue(script.contains("rclone copyto \"staging:$S3_BUCKET/$S3_OBJECT_KEY\" /tmp/service.tar"), script);
     assertFalse(script.contains("mc "), "the minio client must no longer be used: " + script);
+  }
+
+  @Test
+  void initContainerDownloadsFromThePodEndpointWhenOneIsConfigured() {
+    var builder = builderWithStaging(StagingConfiguration.builder()
+      .endpoint("https://s3.external.example")
+      .podEndpoint("http://rook-ceph-rgw-cloudnet-store.rook-ceph.svc:80")
+      .build());
+
+    var env = envOf(builder.build(this.request));
+
+    assertEquals("http://rook-ceph-rgw-cloudnet-store.rook-ceph.svc:80",
+      env.get("RCLONE_CONFIG_STAGING_ENDPOINT"),
+      "the pod must reach the object store through its cluster-internal endpoint");
+  }
+
+  @Test
+  void initContainerDownloadsFromTheNodeEndpointWhenNoPodEndpointIsConfigured() {
+    var builder = builderWithStaging(StagingConfiguration.builder()
+      .endpoint("https://s3.external.example")
+      .build());
+
+    var env = envOf(builder.build(this.request));
+
+    assertEquals("https://s3.external.example", env.get("RCLONE_CONFIG_STAGING_ENDPOINT"),
+      "without a podEndpoint the pod keeps using the shared endpoint");
+  }
+
+  @Test
+  void initContainerFallsBackToTheNodeEndpointWhenThePodEndpointIsBlank() {
+    var builder = builderWithStaging(StagingConfiguration.builder()
+      .endpoint("https://s3.external.example")
+      .podEndpoint("   ")
+      .build());
+
+    var env = envOf(builder.build(this.request));
+
+    assertEquals("https://s3.external.example", env.get("RCLONE_CONFIG_STAGING_ENDPOINT"),
+      "a blank podEndpoint must not be passed to rclone");
+  }
+
+  private static PodSpecBuilder builderWithStaging(StagingConfiguration staging) {
+    return new PodSpecBuilder(KubernetesConfiguration.builder().staging(staging).build());
   }
 
   private static java.util.Map<String, String> envOf(Pod pod) {

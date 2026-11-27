@@ -13,11 +13,22 @@ public record StagingConfiguration(
   boolean pathStyleAccess,
   String accessKey,
   String secretKey,
-  String credentialsSecretName
+  String credentialsSecretName,
+  // Endpoint the pods download from. Null or blank means "use endpoint". Set it when the
+  // node sits outside the cluster and the external endpoint uses a private CA the pods do not trust.
+  String podEndpoint
 ) {
 
   public static Builder builder() {
     return new Builder();
+  }
+
+  /**
+   * The endpoint an init container downloads the staged directory from. Falls back to
+   * {@link #endpoint()} when no pod endpoint is configured.
+   */
+  public String effectivePodEndpoint() {
+    return this.podEndpoint == null || this.podEndpoint.isBlank() ? this.endpoint : this.podEndpoint;
   }
 
   public static final class Builder {
@@ -29,6 +40,12 @@ public record StagingConfiguration(
     private String accessKey = "";
     private String secretKey = "";
     private String credentialsSecretName = "cloudnet-staging-credentials";
+    private String podEndpoint;
+
+    public Builder podEndpoint(String podEndpoint) {
+      this.podEndpoint = podEndpoint;
+      return this;
+    }
 
     public Builder endpoint(String endpoint) {
       this.endpoint = endpoint;
@@ -63,7 +80,7 @@ public record StagingConfiguration(
     public StagingConfiguration build() {
       return new StagingConfiguration(
         this.endpoint, this.bucket, this.pathStyleAccess,
-        this.accessKey, this.secretKey, this.credentialsSecretName);
+        this.accessKey, this.secretKey, this.credentialsSecretName, this.podEndpoint);
     }
   }
 }
