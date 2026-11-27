@@ -30,13 +30,23 @@ Three decisions carry the design:
 be too late. A welcome consequence: the bridge modules need no changes at all, because
 they only ever read `ServiceInfoSnapshot#address()`.
 
-**The service directory travels through object storage.** The docker module bind-mounts
-a host path onto an identical container path, which is the only reason its classpath of
-absolute node paths works. That cannot exist across hosts. Instead the node runs
-`prepareService()` unchanged on local disk, packs the result, and an init container
-unpacks it in the pod. The connection key does not travel in that archive — it ships as
-a Kubernetes secret, which works because the wrapper reads its config path from an
-overridable system property.
+**Everything the pod needs travels through object storage.** The docker module
+bind-mounts host paths onto identical container paths, which is the only reason its
+classpath of absolute node paths works. That cannot exist across hosts. Instead the node
+runs `prepareService()` unchanged on local disk and uploads two archives:
+
+- the service directory, unpacked into `/cloudnet/service`
+- a runtime bundle with the wrapper jar and every launcher library the node's JVM command
+  line refers to, unpacked into `/cloudnet/runtime`
+
+The runtime bundle is content-addressed (`runtime/<sha256>.tar`). Services with the same
+runtime share one object, and it is uploaded only when that object does not exist yet.
+Runtime bundles are never deleted with a service. The pods run a stock JRE image
+(`eclipse-temurin:25-jre` by default), so no custom image has to match the node version.
+
+The connection key does not travel in either archive — it ships as a Kubernetes secret,
+which works because the wrapper reads its config path from an overridable system
+property.
 
 **Pod state comes from an informer, never an API call.** CloudNet's watchdog calls
 `alive()` once per second for every local service. Anything else would be an outage.
@@ -47,6 +57,8 @@ overridable system property.
 - Kubernetes 1.30+
 - An S3-compatible bucket for staging (Ceph RGW works; `storage-s3` already speaks to it
   through `endpointOverride` and `pathStyleAccess`)
+- A JRE 25 image for the pods. The default `eclipse-temurin:25-jre` needs nothing built
+  by this project.
 
 ## Installation
 

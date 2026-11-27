@@ -5,7 +5,8 @@ Gets a single service running as a pod, with a working console.
 ## Before you start
 
 You need a Kubernetes cluster, a CloudNet 4.0.0-RC17 node, and an S3-compatible bucket
-for staging.
+for staging. No service image has to be built: the pods run a stock JRE image, and the
+node ships the CloudNet runtime to them.
 
 ## 1. Apply the cluster resources
 
@@ -37,6 +38,10 @@ Restart the node. It writes `modules/CloudNet-Kubernetes/config.json` on first s
 adjust `namespace`, `nodeServiceDns` and the `staging` block there, then restart again.
 
 The node uploads through `staging.endpoint`. Set `staging.podEndpoint` only when the node sits outside the cluster and that external endpoint uses a private CA the pods do not trust; then point it at the cluster-internal object store, for example `http://rook-ceph-rgw-<store>.<namespace>.svc:80`. Leave it out and the pods use `endpoint`.
+
+The pods run `serviceImage`, which defaults to `eclipse-temurin:25-jre`. Change it only if the pods need a different JRE; per-task `image` still overrides it.
+
+If the services must trust a private CA, set `truststorePath` to a JVM truststore that already trusts it, for example the node JVM's `cacerts`. Set `truststorePassword` when that store has one. The node ships the file inside the runtime bundle, and the JVM in the pod reads it from `/cloudnet/runtime/cacerts`. Leave both keys out and the pods use the JDK default trust store.
 
 ## 4. Point a task at the runtime
 
@@ -78,7 +83,8 @@ service Lobby-1 stop
 kubectl -n cloudnet get pods,secrets -l cloudnet.eu/task=Lobby
 ```
 
-Nothing should remain. The staging object is removed as well.
+Nothing should remain. The service's staging archive is removed as well. Runtime bundles
+under `runtime/` are shared and stay in the bucket on purpose.
 
 ## When it does not work
 
