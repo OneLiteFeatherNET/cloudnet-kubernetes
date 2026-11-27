@@ -47,7 +47,8 @@ public record KubernetesConfiguration(
     private String namespace = "cloudnet";
     private String clusterDomain = "cluster.local";
     private String subdomain = "cloudnet-services";
-    private String serviceImage = "ghcr.io/onelitefeathernet/cloudnet-service:4.0.0-RC17";
+    // A stock JRE. The wrapper and the launcher libraries come from the node as a runtime bundle.
+    private String serviceImage = "eclipse-temurin:25-jre";
     // Needs rclone for the S3 copy plus /bin/sh and tar for the unpack. Pinned, not :latest.
     // Override via the stagingImage key in config.json when a different tag is needed.
     private String stagingImage = "docker.io/rclone/rclone:1.72.0";

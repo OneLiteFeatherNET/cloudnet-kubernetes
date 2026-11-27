@@ -67,6 +67,12 @@ class KubernetesConfigurationTest {
   }
 
   @Test
+  void podsRunAStockJreImageByDefault() {
+    // The runtime comes from the node, so no image of ours has to match the node version.
+    assertEquals("eclipse-temurin:25-jre", KubernetesConfiguration.builder().build().serviceImage());
+  }
+
+  @Test
   void noTruststoreIsShippedByDefault() {
     var config = KubernetesConfiguration.builder().build();
 
