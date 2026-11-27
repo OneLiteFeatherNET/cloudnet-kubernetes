@@ -96,17 +96,8 @@ public final class KubernetesService extends JVMService {
     TaskKubernetesConfig taskConfig
   ) {
     var logCache = new KubernetesServiceLogCache(nodeConfig, configuration.serviceId());
-    super(
-      i18n,
-      tickLoop,
-      nodeConfig,
-      configuration,
-      manager,
-      eventManager,
-      logCache,
-      versionProvider,
-      serviceConfigurationPreparer);
-
+    // Assigned before super(): the CloudNet base constructor already calls alive() and
+    // runtime(), which read these fields (flexible constructor bodies, JEP 513).
     this.kubernetesLogCache = logCache;
     this.client = client;
     this.kubernetesConfig = kubernetesConfig;
@@ -120,6 +111,16 @@ public final class KubernetesService extends JVMService {
     this.ownerConfigMapName = ownerConfigMapName;
     this.ownerConfigMapUid = ownerConfigMapUid;
     this.taskConfig = taskConfig;
+    super(
+      i18n,
+      tickLoop,
+      nodeConfig,
+      configuration,
+      manager,
+      eventManager,
+      logCache,
+      versionProvider,
+      serviceConfigurationPreparer);
   }
 
   @Override
