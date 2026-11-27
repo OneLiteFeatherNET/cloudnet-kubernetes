@@ -17,7 +17,9 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
  * Moves the service directory the node prepared locally into object storage, so an
@@ -35,6 +37,8 @@ public final class ServiceDirectoryStager implements AutoCloseable {
    */
   private static final Set<String> EXCLUDED_FILES = Set.of("wrapper.jar");
   private static final String EXCLUDED_PREFIX = ".wrapper/";
+  /** Prefix of the per-pod service archives; runtime bundles live under another prefix. */
+  private static final String SERVICE_KEY_PREFIX = "services/";
 
   private final StagingConfiguration config;
   private final S3Client s3;
@@ -92,7 +96,53 @@ public final class ServiceDirectoryStager implements AutoCloseable {
     }
   }
 
+  /**
+   * Uploads the runtime bundle unless an object with its content-derived key exists
+   * already. Two services with the same runtime find the same object, so the second one
+   * uploads nothing. Concurrent uploads of identical content are harmless.
+   *
+   * @return the object key the pod has to fetch
+   */
+  public String ensureRuntime(RuntimeBundle bundle) throws IOException {
+    var objectKey = bundle.objectKey();
+    if (this.exists(objectKey)) {
+      return objectKey;
+    }
+
+    var archive = Files.createTempFile("cloudnet-runtime-", ".tar");
+    try {
+      try (var out = Files.newOutputStream(archive)) {
+        bundle.pack(out);
+      }
+      this.s3.putObject(
+        PutObjectRequest.builder().bucket(this.config.bucket()).key(objectKey).build(),
+        RequestBody.fromFile(archive));
+      return objectKey;
+    } finally {
+      Files.deleteIfExists(archive);
+    }
+  }
+
+  private boolean exists(String objectKey) {
+    try {
+      this.s3.headObject(HeadObjectRequest.builder().bucket(this.config.bucket()).key(objectKey).build());
+      return true;
+    } catch (S3Exception exception) {
+      if (exception.statusCode() == 404) {
+        return false;
+      }
+      throw exception;
+    }
+  }
+
+  /**
+   * Removes the archive of a single service. Runtime bundles are shared by every service
+   * with the same runtime, so they are refused here rather than deleted by accident.
+   */
   public void delete(String objectKey) {
+    if (!objectKey.startsWith(SERVICE_KEY_PREFIX)) {
+      throw new IllegalArgumentException("only service archives may be deleted, refusing " + objectKey);
+    }
     this.s3.deleteObject(
       DeleteObjectRequest.builder().bucket(this.config.bucket()).key(objectKey).build());
   }

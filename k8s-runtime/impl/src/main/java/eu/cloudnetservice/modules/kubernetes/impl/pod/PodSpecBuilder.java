@@ -36,6 +36,7 @@ public final class PodSpecBuilder {
     String ownerConfigMapUid,
     String image,
     String stagingKey,
+    String runtimeKey,
     List<String> command,
     // Per-task overrides. Null means "module default", see TaskKubernetesConfig.
     Map<String, String> nodeSelector,
@@ -57,10 +58,11 @@ public final class PodSpecBuilder {
       String ownerConfigMapUid,
       String image,
       String stagingKey,
+      String runtimeKey,
       List<String> command
     ) {
       this(serviceName, serviceId, taskName, maxHeapMemoryMib, port, nodeUniqueId, ownerConfigMapName,
-        ownerConfigMapUid, image, stagingKey, command, null, null, null, null, null);
+        ownerConfigMapUid, image, stagingKey, runtimeKey, command, null, null, null, null, null);
     }
   }
 
@@ -144,6 +146,12 @@ public final class PodSpecBuilder {
           .withName("init-tmp")
           .withNewEmptyDir().endEmptyDir()
         .endVolume()
+        // Wrapper jar, launcher libraries and optional truststore. Unpacked per pod, so the
+        // pod never depends on what another pod or a previous start left behind.
+        .addNewVolume()
+          .withName("runtime")
+          .withNewEmptyDir().endEmptyDir()
+        .endVolume()
         // Unpacks the archive the node uploaded after prepareService(). This runs
         // before the main container, and therefore before the wrapper's 30 second
         // authentication window starts - the transfer never eats into that budget.
@@ -159,6 +167,9 @@ public final class PodSpecBuilder {
           // points at a path that does not exist, so rclone never reads a config file.
           .withCommand("/bin/sh", "-c",
             "set -eu; "
+              + "rclone copyto \"staging:$S3_BUCKET/$S3_RUNTIME_KEY\" /tmp/runtime.tar; "
+              + "tar -xf /tmp/runtime.tar -C /cloudnet/runtime; "
+              + "rm -f /tmp/runtime.tar; "
               + "rclone copyto \"staging:$S3_BUCKET/$S3_OBJECT_KEY\" /tmp/service.tar; "
               + "tar -xf /tmp/service.tar -C /cloudnet/service; "
               + "rm -f /tmp/service.tar")
@@ -193,6 +204,10 @@ public final class PodSpecBuilder {
             .withValue(request.stagingKey())
           .endEnv()
           .addNewEnv()
+            .withName("S3_RUNTIME_KEY")
+            .withValue(request.runtimeKey())
+          .endEnv()
+          .addNewEnv()
             .withName("RCLONE_CONFIG_STAGING_ACCESS_KEY_ID")
             .withNewValueFrom()
               .withNewSecretKeyRef("accessKey", this.config.staging().credentialsSecretName(), false)
@@ -208,7 +223,11 @@ public final class PodSpecBuilder {
             .withName("service-dir")
             .withMountPath("/cloudnet/service")
           .endVolumeMount()
-          // The archive is written to /tmp; an emptyDir keeps that working on a read-only root fs.
+          .addNewVolumeMount()
+            .withName("runtime")
+            .withMountPath("/cloudnet/runtime")
+          .endVolumeMount()
+          // The archives are written to /tmp; an emptyDir keeps that working on a read-only root fs.
           .addNewVolumeMount()
             .withName("init-tmp")
             .withMountPath("/tmp")
@@ -252,6 +271,12 @@ public final class PodSpecBuilder {
           .addNewVolumeMount()
             .withName("service-dir")
             .withMountPath("/cloudnet/service")
+          .endVolumeMount()
+          // Read only for the server: the bundle is the shared, verified runtime.
+          .addNewVolumeMount()
+            .withName("runtime")
+            .withMountPath("/cloudnet/runtime")
+            .withReadOnly(true)
           .endVolumeMount()
           .withNewSecurityContext()
             .withAllowPrivilegeEscalation(false)

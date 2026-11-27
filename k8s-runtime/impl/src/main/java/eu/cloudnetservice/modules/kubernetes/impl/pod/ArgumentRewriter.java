@@ -13,13 +13,13 @@ import java.util.List;
  * host path onto an identical container path, which is impossible once the pod runs
  * on another machine.
  *
- * <p>The image carries the launcher libraries and the wrapper at fixed locations, so
- * the three prefixes are substituted instead.
+ * <p>The node ships the launcher libraries and the wrapper as a runtime bundle, which an
+ * init container unpacks to fixed locations. The three prefixes are substituted for those.
  */
 public final class ArgumentRewriter {
 
-  public static final String CONTAINER_LIB_PATH = "/cloudnet/libs";
-  public static final String CONTAINER_WRAPPER_JAR = "/cloudnet/wrapper.jar";
+  public static final String CONTAINER_LIB_PATH = "/cloudnet/runtime/libs";
+  public static final String CONTAINER_WRAPPER_JAR = "/cloudnet/runtime/wrapper.jar";
   public static final String CONTAINER_SERVICE_DIR = "/cloudnet/service";
 
   private ArgumentRewriter() {

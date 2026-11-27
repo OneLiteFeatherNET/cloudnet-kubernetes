@@ -11,6 +11,7 @@ import eu.cloudnetservice.modules.kubernetes.impl.console.PodLogStream;
 import eu.cloudnetservice.modules.kubernetes.impl.naming.ResourceNaming;
 import eu.cloudnetservice.modules.kubernetes.impl.pod.ArgumentRewriter;
 import eu.cloudnetservice.modules.kubernetes.impl.pod.PodSpecBuilder;
+import eu.cloudnetservice.modules.kubernetes.impl.staging.RuntimeBundle;
 import eu.cloudnetservice.modules.kubernetes.impl.staging.ServiceDirectoryStager;
 import eu.cloudnetservice.modules.kubernetes.impl.state.PodStateCache;
 import eu.cloudnetservice.node.config.Configuration;
@@ -164,18 +165,24 @@ public final class KubernetesService extends JVMService {
       Duration.ofSeconds(this.kubernetesConfig.terminationGracePeriodSeconds() + 30L));
 
     try {
-      // 1) Hand the directory prepareService() just built over to the pod. Bind mounts
+      // 1) The node's wrapper jar and launcher libraries, shipped as a content-addressed
+      //    runtime bundle. Uploaded only once per distinct runtime, and never deleted with
+      //    the service. The pod image is a stock JRE and carries none of them.
+      var runtimeKey = this.stager.ensureRuntime(RuntimeBundle.collect(
+        arguments, LIB_PATH.toAbsolutePath(), wrapperPath, null));
+
+      // 2) Hand the directory prepareService() just built over to the pod. Bind mounts
       //    with identical host and container paths, which is how the docker module
       //    solves this, cannot exist across hosts.
       this.stagingKey = this.stager.upload(this.serviceDirectory, ResourceNaming.stagingKey(name));
 
-      // 2) The connection key ships separately as a secret. This works because the
+      // 3) The connection key ships separately as a secret. This works because the
       //    wrapper reads its config path from an overridable system property.
       this.createWrapperSecret(name);
 
-      // 3) The inherited command line points at absolute node paths for the
+      // 4) The inherited command line points at absolute node paths for the
       //    launcher libraries, the wrapper jar and the service directory. None of
-      //    those exist in the pod, so they are mapped onto the image layout.
+      //    those exist in the pod, so they are mapped onto the runtime layout.
       var command = new ArrayList<>(ArgumentRewriter.rewrite(
         arguments, LIB_PATH, wrapperPath, this.serviceDirectory));
       command.add(1, "-Dcloudnet.wrapper.config.path=" + WRAPPER_MOUNT);
@@ -191,6 +198,7 @@ public final class KubernetesService extends JVMService {
         this.ownerConfigMapUid,
         this.taskConfig.image(),
         this.stagingKey,
+        runtimeKey,
         command,
         this.taskConfig.nodeSelector(),
         this.taskConfig.tolerationKey(),
@@ -200,7 +208,7 @@ public final class KubernetesService extends JVMService {
 
       this.client.pods().inNamespace(this.kubernetesConfig.namespace()).resource(pod).create();
 
-      // 4) Console last, so a failed pod creation leaves no dangling streams.
+      // 5) Console last, so a failed pod creation leaves no dangling streams.
       this.console = new PodConsoleInput(this.client, this.kubernetesConfig.namespace(), name);
       this.logStream = new PodLogStream(this.client, this.kubernetesConfig.namespace(), name);
       this.logStream.start(this.executor, this.kubernetesLogCache::acceptLine);
