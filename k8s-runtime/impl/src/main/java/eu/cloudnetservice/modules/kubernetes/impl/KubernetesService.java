@@ -168,8 +168,12 @@ public final class KubernetesService extends JVMService {
       // 1) The node's wrapper jar and launcher libraries, shipped as a content-addressed
       //    runtime bundle. Uploaded only once per distinct runtime, and never deleted with
       //    the service. The pod image is a stock JRE and carries none of them.
+      var truststorePath = this.kubernetesConfig.truststorePath();
       var runtimeKey = this.stager.ensureRuntime(RuntimeBundle.collect(
-        arguments, LIB_PATH.toAbsolutePath(), wrapperPath, null));
+        arguments,
+        LIB_PATH.toAbsolutePath(),
+        wrapperPath,
+        truststorePath == null ? null : Path.of(truststorePath)));
 
       // 2) Hand the directory prepareService() just built over to the pod. Bind mounts
       //    with identical host and container paths, which is how the docker module
@@ -186,6 +190,9 @@ public final class KubernetesService extends JVMService {
       var command = new ArrayList<>(ArgumentRewriter.rewrite(
         arguments, LIB_PATH, wrapperPath, this.serviceDirectory));
       command.add(1, "-Dcloudnet.wrapper.config.path=" + WRAPPER_MOUNT);
+      if (truststorePath != null) {
+        command.addAll(1, ArgumentRewriter.trustStoreArguments(this.kubernetesConfig.truststorePassword()));
+      }
 
       var pod = this.podSpecBuilder.build(new PodSpecBuilder.PodRequest(
         this.serviceId().name(),

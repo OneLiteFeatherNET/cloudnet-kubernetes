@@ -81,6 +81,20 @@ class ArgumentRewriterTest {
   }
 
   @Test
+  void trustStoreArgumentsPointAtTheShippedCacertsWithoutAPassword() {
+    assertEquals(List.of("-Djavax.net.ssl.trustStore=/cloudnet/runtime/cacerts"),
+      ArgumentRewriter.trustStoreArguments(null));
+  }
+
+  @Test
+  void trustStoreArgumentsCarryThePasswordOnlyWhenOneIsConfigured() {
+    assertEquals(List.of(
+        "-Djavax.net.ssl.trustStore=/cloudnet/runtime/cacerts",
+        "-Djavax.net.ssl.trustStorePassword=changeit"),
+      ArgumentRewriter.trustStoreArguments("changeit"));
+  }
+
+  @Test
   void emptyArgumentListDoesNotThrow() {
     assertTrue(this.rewrite(List.of()).isEmpty());
   }

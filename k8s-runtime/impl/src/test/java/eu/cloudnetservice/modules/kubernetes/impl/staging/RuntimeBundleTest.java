@@ -173,6 +173,46 @@ class RuntimeBundleTest {
   }
 
   @Test
+  void truststoreIsShippedAsCacerts() throws IOException {
+    var truststore = this.write(this.root.resolve("truststore/cacerts"), "trusted");
+
+    var bundle = RuntimeBundle.collect(List.of(), this.libs, this.wrapper, truststore);
+
+    assertTrue(entryNames(bundle).contains("cacerts"), entryNames(bundle).toString());
+    assertEquals(truststore, bundle.entries().stream()
+      .filter(entry -> entry.relativePath().equals("cacerts"))
+      .findFirst().orElseThrow().source());
+  }
+
+  @Test
+  void noCacertsEntryWithoutATruststore() throws IOException {
+    var bundle = this.collect(List.of());
+
+    assertFalse(entryNames(bundle).contains("cacerts"), entryNames(bundle).toString());
+  }
+
+  @Test
+  void keyChangesWhenTheTruststoreChanges() throws IOException {
+    var truststore = this.write(this.root.resolve("truststore/cacerts"), "trusted");
+    var before = RuntimeBundle.collect(List.of(), this.libs, this.wrapper, truststore).objectKey();
+
+    Files.writeString(truststore, "trusted and one more CA");
+    var after = RuntimeBundle.collect(List.of(), this.libs, this.wrapper, truststore).objectKey();
+
+    assertNotEquals(before, after, "the hash must cover the truststore, or a new CA would never reach the pod");
+  }
+
+  @Test
+  void keyWithATruststoreDiffersFromTheKeyWithout() throws IOException {
+    var truststore = this.write(this.root.resolve("truststore/cacerts"), "trusted");
+
+    var without = this.collect(List.of()).objectKey();
+    var with = RuntimeBundle.collect(List.of(), this.libs, this.wrapper, truststore).objectKey();
+
+    assertNotEquals(without, with);
+  }
+
+  @Test
   void packedArchiveHoldsTheWrapperAndLibrariesUnderRelativePaths() throws Exception {
     var jar = this.write(this.libs.resolve("a.jar"), "a");
     var bundle = this.collect(List.of("-cp", jar.toString()));

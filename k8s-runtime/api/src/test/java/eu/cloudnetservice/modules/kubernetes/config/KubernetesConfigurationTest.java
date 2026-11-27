@@ -2,6 +2,7 @@ package eu.cloudnetservice.modules.kubernetes.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -63,6 +64,25 @@ class KubernetesConfigurationTest {
     assertEquals("k8s-prod", config.factoryName());
     assertEquals("games", config.namespace());
     assertEquals(1420, config.nodeListenerPort());
+  }
+
+  @Test
+  void noTruststoreIsShippedByDefault() {
+    var config = KubernetesConfiguration.builder().build();
+
+    assertNull(config.truststorePath(), "the pods then use the JDK default trust store");
+    assertNull(config.truststorePassword());
+  }
+
+  @Test
+  void truststoreAndItsPasswordAreTakenFromTheBuilder() {
+    var config = KubernetesConfiguration.builder()
+      .truststorePath("/opt/cloudnet/certs/cacerts")
+      .truststorePassword("changeit")
+      .build();
+
+    assertEquals("/opt/cloudnet/certs/cacerts", config.truststorePath());
+    assertEquals("changeit", config.truststorePassword());
   }
 
   @Test

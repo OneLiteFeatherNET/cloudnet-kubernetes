@@ -21,8 +21,25 @@ public final class ArgumentRewriter {
   public static final String CONTAINER_LIB_PATH = "/cloudnet/runtime/libs";
   public static final String CONTAINER_WRAPPER_JAR = "/cloudnet/runtime/wrapper.jar";
   public static final String CONTAINER_SERVICE_DIR = "/cloudnet/service";
+  public static final String CONTAINER_TRUSTSTORE = "/cloudnet/runtime/cacerts";
 
   private ArgumentRewriter() {
+  }
+
+  /**
+   * The system properties that make the JVM use the shipped truststore. The password is
+   * only passed when one is configured; without it the JVM reads the store without an
+   * integrity check.
+   *
+   * @param password the truststore password, or null
+   */
+  public static List<String> trustStoreArguments(String password) {
+    var arguments = new ArrayList<String>(2);
+    arguments.add("-Djavax.net.ssl.trustStore=" + CONTAINER_TRUSTSTORE);
+    if (password != null) {
+      arguments.add("-Djavax.net.ssl.trustStorePassword=" + password);
+    }
+    return arguments;
   }
 
   /**

@@ -17,7 +17,12 @@ public record KubernetesConfiguration(
   double memoryOverheadFactor,
   int memoryOverheadFloorMib,
   int defaultCpuRequest,
-  StagingConfiguration staging
+  StagingConfiguration staging,
+  // JVM truststore shipped with the runtime bundle as cacerts, for services that must trust
+  // a private CA. Null means the pods use the JDK default trust store.
+  String truststorePath,
+  // Password of the truststore, passed as a system property. Null when the store has none.
+  String truststorePassword
 ) {
 
   public static Builder builder() {
@@ -56,6 +61,8 @@ public record KubernetesConfiguration(
     private int memoryOverheadFloorMib = 512;
     private int defaultCpuRequest = 2;
     private StagingConfiguration staging = StagingConfiguration.builder().build();
+    private String truststorePath;
+    private String truststorePassword;
 
     public Builder factoryName(String factoryName) {
       this.factoryName = factoryName;
@@ -112,13 +119,23 @@ public record KubernetesConfiguration(
       return this;
     }
 
+    public Builder truststorePath(String truststorePath) {
+      this.truststorePath = truststorePath;
+      return this;
+    }
+
+    public Builder truststorePassword(String truststorePassword) {
+      this.truststorePassword = truststorePassword;
+      return this;
+    }
+
     public KubernetesConfiguration build() {
       return new KubernetesConfiguration(
         this.factoryName, this.namespace, this.clusterDomain, this.subdomain,
         this.serviceImage, this.stagingImage, this.nodeServiceDns, this.nodeListenerPort,
         this.terminationGracePeriodSeconds, this.activeDeadlineSeconds,
         this.memoryOverheadFactor, this.memoryOverheadFloorMib, this.defaultCpuRequest,
-        this.staging);
+        this.staging, this.truststorePath, this.truststorePassword);
     }
   }
 }
